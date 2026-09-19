@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Settings</h1>
+<form method="post" action="{{ u('/app/settings') }}" class="itemform">
+  <label>Style profile (goes into every request)
+    <textarea name="profile" rows="6" maxlength="2000">{{ profile }}</textarea></label>
+  <label>Outfits per request
+    <input type="number" name="outfit_n" min="1" max="6" value="{{ outfit_n }}"></label>
+  <label>Home Assistant weather entity (e.g. weather.home)
+    <input name="weather_entity" value="{{ weather_entity }}" placeholder="weather.home"></label>
+  <label>Home Assistant notify service for alerts (e.g. notify.mobile_app_pixel)
+    <input name="notify_service" value="{{ notify_service }}" placeholder="notify.mobile_app_..."></label>
+  <p class="muted small">Home Assistant connection: {{ 'configured' if ha_ok else 'HA_URL / HA_TOKEN missing in .env' }}
+    · alert channels: {{ channels|join(', ') if channels else 'none' }}</p>
+  <button class="primary">Save</button>
+</form>
+<form method="post" action="{{ u('/app/settings/test-weather') }}"><button>Test weather</button></form>
+{% endblock %}

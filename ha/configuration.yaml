@@ -1,0 +1,29 @@
+# Add to Home Assistant's configuration.yaml (or a package), then restart / reload.
+# secrets.yaml:
+#   clothing_advisor_url: "https://ca.example.nl/api/tv"
+#   clothing_advisor_bearer: "Bearer <CA_ACCESS_TOKEN>"
+rest:
+  - resource: !secret clothing_advisor_url
+    headers:
+      Authorization: !secret clothing_advisor_bearer
+    scan_interval: 30
+    timeout: 10
+    sensor:
+      - name: Clothing Advisor
+        unique_id: clothing_advisor
+        value_template: "{{ value_json.state }}"
+        json_attributes:
+          - today_outfit
+          - outfits
+          - request
+          - weather
+          - updated_at
+          - month_cost_eur
+          - budget_eur
+          - budget_pct
+
+# The attributes hold a few KB of text per refresh; keep them out of the recorder database.
+recorder:
+  exclude:
+    entities:
+      - sensor.clothing_advisor

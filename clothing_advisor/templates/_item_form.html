@@ -1,0 +1,26 @@
+<form method="post" action="{{ u('/app/item/' ~ item.id ~ '/update') }}" class="itemform">
+  <input type="hidden" name="back" value="{{ back }}">
+  <label>Category
+    <select name="category">{% for c in CATEGORIES %}<option {{ 'selected' if item.category == c }}>{{ c }}</option>{% endfor %}</select></label>
+  <label>Type <input name="subtype" value="{{ item.subtype }}" maxlength="80"></label>
+  <label>Colours (comma separated) <input name="colors" value="{{ item.colors|join(', ') }}"></label>
+  <label>Pattern
+    <select name="pattern">{% for p in PATTERNS %}<option {{ 'selected' if item.pattern == p }}>{{ p }}</option>{% endfor %}</select></label>
+  <div class="two">
+    <label>Formality
+      <select name="formality">{% for n in range(1, 6) %}<option value="{{ n }}" {{ 'selected' if item.formality == n }}>{{ n }}{{ {1:' sport',2:' casual',3:' smart casual',4:' business',5:' formal'}[n] }}</option>{% endfor %}</select></label>
+    <label>Warmth
+      <select name="warmth">{% for n in range(1, 6) %}<option value="{{ n }}" {{ 'selected' if item.warmth == n }}>{{ n }}{{ {1:' very light',2:' light',3:' medium',4:' warm',5:' very warm'}[n] }}</option>{% endfor %}</select></label>
+  </div>
+  <label>Layer
+    <select name="layer">{% for l in LAYERS %}<option {{ 'selected' if item.layer == l }}>{{ l }}</option>{% endfor %}</select></label>
+  <fieldset><legend>Seasons</legend>
+    {% for s in SEASONS %}<label class="chk"><input type="checkbox" name="seasons" value="{{ s }}" {{ 'checked' if s in item.seasons }}> {{ s }}</label>{% endfor %}
+  </fieldset>
+  <label>Description <input name="description" value="{{ item.description }}" maxlength="200"></label>
+  {% if item.ai_issue %}<p class="warnnote">AI note: {{ item.ai_issue }}</p>{% endif %}
+  <div class="row">
+    {% if not item.reviewed %}<button name="action" value="approve" class="primary">Approve</button>{% endif %}
+    <button name="action" value="save">Save</button>
+  </div>
+</form>

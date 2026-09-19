@@ -1,0 +1,302 @@
+"""Outfit advice: weather/season pre-filter, prompt building, server-side validation, wear & laundry rules."""
+from __future__ import annotations
+
+import json
+import logging
+from datetime import date, datetime, timedelta
+from typing import Any
+
+from .config import Config
+from .db import Database
+from .llm import LlmClient
+from .schema import AdviceOut
+from .weather import Weather
+
+log = logging.getLogger(__name__)
+
+DEFAULT_STYLE_PROFILE = (
+    "Primarily casual; sometimes a bit smarter (casual chic / smart casual). Never suits, never a dress shirt "
+    "combined with suit trousers, and never classic formal men's dress shoes (oxfords, derbies, brogues). "
+    "Prefer relaxed, modern, well-fitting pieces in a coherent palette."
+)
+SESSION_MAX_AGE = timedelta(hours=12)
+HISTORY_TURNS = 6
+
+# Wears before an item goes to the wash. 0 = never automatically.
+WASH_AFTER = {("top", "base"): 1, ("top", "mid"): 3, ("top", None): 2, ("bottom", None): 4,
+              ("outerwear", None): 20, ("footwear", None): 0, ("accessory", None): 0}
+
+SYSTEM_RULES = """You are the personal stylist of one man. You build complete, well-matched outfits from his wardrobe catalogue and nothing else.
+
+Rules:
+- Use only item ids that appear in the catalogue below. Never invent items.
+- Composition of one outfit: exactly one bottom, exactly one footwear, one or two tops (a base layer, optionally a mid layer over it; never two base layers or two mid layers), at most one outerwear piece, and 0-3 accessories only when they add something.
+- Colour: keep the palette coherent (neutrals plus at most one accent colour); avoid clashing patterns; avoid two very similar tones that nearly match.
+- Formality: all pieces of an outfit sit within about one level of the requested formality (1 sport ... 3 smart casual / casual chic ... 5 formal). Never mix sportswear with smart pieces.
+- Weather: choose warmth and layers to fit the conditions given; add rain protection when precipitation is likely. The catalogue is already filtered for the weather.
+- Give real variety between the outfits (different bottoms and different overall feel where the catalogue allows it).
+- Respect the style profile. Never propose anything listed as unavailable or excluded, and never repeat a blocked outfit.
+- If the user asks to avoid or replace a specific piece ("not those trousers", "without the grey sweater"), put its id in exclude_item_ids. Only include ids the user actually wants avoided; otherwise return an empty list.
+- rationale: at most two concrete sentences (colours, formality, weather). reply: one short sentence to the user. Write in English.
+- If the catalogue cannot support the requested number of good outfits, return fewer and say why in reply."""
+
+
+# --------------------------------------------------------------------------- weather / season filter
+def season_of(d: date) -> str:
+    return {12: "winter", 1: "winter", 2: "winter", 3: "spring", 4: "spring", 5: "spring",
+            6: "summer", 7: "summer", 8: "summer"}.get(d.month, "autumn")
+
+
+def _too_warm(item: dict[str, Any], t_high: float) -> bool:
+    w, cat, layer = item["warmth"] or 3, item["category"], item["layer"]
+    if w >= 5 and t_high >= 12:
+        return True
+    if w >= 4 and t_high >= 18:
+        return True
+    if w >= 3 and t_high >= 25 and (cat == "outerwear" or (cat == "top" and layer == "mid")):
+        return True
+    return cat == "footwear" and w >= 4 and t_high >= 20
+
+
+def _too_light(item: dict[str, Any], t_high: float) -> bool:
+    w, cat, layer = item["warmth"] or 3, item["category"], item["layer"]
+    if w > 1:
+        return False
+    if cat == "bottom":
+        return t_high < 16  # shorts
+    if cat == "footwear":
+        return t_high < 15  # sandals
+    return cat == "top" and layer != "base" and t_high < 10
+
+
+def weather_filter(items: list[dict[str, Any]], weather: dict[str, Any] | None, today: date) -> list[dict[str, Any]]:
+    """Drop items that make no sense today. Uses the day's high when known, otherwise the season."""
+    t_high = weather.get("t_high") if weather else None
+    if t_high is not None:
+        kept = [i for i in items if not _too_warm(i, t_high) and not _too_light(i, t_high)]
+    else:
+        season = season_of(today)
+        kept = [i for i in items if not i["seasons"] or season in i["seasons"]]
+    # Safety net: never filter away a whole slot (e.g. a wardrobe with no warm-weather shoes).
+    for cat in ("top", "bottom", "footwear"):
+        if not any(i["category"] == cat for i in kept):
+            kept += [i for i in items if i["category"] == cat and i not in kept]
+    return sorted(kept, key=lambda i: i["id"])
+
+
+# --------------------------------------------------------------------------- catalogue / repeat rules
+def usable_items(db: Database) -> list[dict[str, Any]]:
+    return [i for i in db.list_items(reviewed=True) if i["status"] != "retired" and i["category"]]
+
+
+def catalogue_line(i: dict[str, Any]) -> str:
+    return (f"#{i['id']} | {i['category']}/{i['subtype']} | {','.join(i['colors'])} | {i['pattern']} | "
+            f"formality {i['formality']} | warmth {i['warmth']} | {','.join(i['seasons'])} | layer {i['layer']}"
+            + (f" | {i['description']}" if i["description"] else ""))
+
+
+def blocked_outfits(db: Database, cfg: Config, today: date) -> tuple[list[frozenset[int]], list[frozenset[int]]]:
+    """(blocked, repeatable): identical outfits worn inside the repeat window are blocked, except that
+    yesterday's outfit may be worn a second day in a row (as long as it is the only wear in the window)."""
+    since = (today - timedelta(days=cfg.repeat_days)).isoformat()
+    by_set: dict[frozenset[int], list[str]] = {}
+    for o in db.list_outfits(statuses=("worn", "chosen"), since=since):
+        d = o["worn_on"] or o["chosen_on"]
+        if d:
+            by_set.setdefault(frozenset(o["item_ids"]), []).append(d)
+    yesterday = (today - timedelta(days=1)).isoformat()
+    blocked, repeatable = [], []
+    for s, days in by_set.items():
+        (repeatable if days == [yesterday] else blocked).append(s)
+    return blocked, repeatable
+
+
+def validate_outfit(ids: list[int], allowed: dict[int, dict[str, Any]], blocked: list[frozenset[int]]) -> str | None:
+    """Return None when the outfit is valid, otherwise a short reason."""
+    if len(set(ids)) != len(ids):
+        return "contains a duplicate item"
+    missing = [i for i in ids if i not in allowed]
+    if missing:
+        return f"uses items that are not available: {missing}"
+    items = [allowed[i] for i in ids]
+    count = {c: sum(1 for x in items if x["category"] == c) for c in ("top", "bottom", "outerwear", "footwear", "accessory")}
+    if count["bottom"] != 1:
+        return "needs exactly one bottom"
+    if count["footwear"] != 1:
+        return "needs exactly one pair of footwear"
+    if not 1 <= count["top"] <= 2:
+        return "needs one or two tops"
+    if count["outerwear"] > 1:
+        return "has more than one outerwear piece"
+    if count["accessory"] > 3:
+        return "has more than three accessories"
+    layers = [x["layer"] for x in items if x["category"] == "top"]
+    if len(layers) == 2 and set(layers) != {"base", "mid"}:
+        return "two tops must be one base layer and one mid layer"
+    if frozenset(ids) in blocked:
+        return "repeats an outfit worn recently"
+    return None
+
+
+# --------------------------------------------------------------------------- advice
+def today_date(cfg: Config) -> date:
+    return datetime.now(cfg.tz).date()
+
+
+def style_profile(db: Database) -> str:
+    return db.get_setting("style_profile") or DEFAULT_STYLE_PROFILE
+
+
+def outfit_count(cfg: Config, db: Database) -> int:
+    raw = db.get_setting("outfit_count")
+    return int(raw) if raw.isdigit() and 1 <= int(raw) <= 6 else cfg.outfit_count
+
+
+def current_session(db: Database, cfg: Config) -> dict[str, Any] | None:
+    s = db.latest_session()
+    if not s:
+        return None
+    updated = datetime.fromisoformat(s["updated_at"])
+    return s if datetime.now(updated.tzinfo) - updated < SESSION_MAX_AGE else None
+
+
+class Stylist:
+    def __init__(self, cfg: Config, db: Database, llm: LlmClient, weather: Weather):
+        self.cfg, self.db, self.llm, self.weather = cfg, db, llm, weather
+
+    def advise(self, message: str, *, new_session: bool = False, exclude_ids: list[int] | None = None,
+               ignore_weather: bool = False) -> dict[str, Any]:
+        cfg, db = self.cfg, self.db
+        today = today_date(cfg)
+        message = message.strip()[:1000]
+        if not message:
+            raise ValueError("Say what you are looking for (e.g. 'something casual').")
+
+        all_items = usable_items(db)
+        if not any(i["category"] == "top" for i in all_items) or not any(
+                i["category"] == "bottom" for i in all_items) or not any(i["category"] == "footwear" for i in all_items):
+            raise ValueError("The wardrobe needs at least one reviewed top, bottom and pair of shoes first.")
+
+        session = None if new_session else current_session(db, cfg)
+        session_id = session["id"] if session else db.new_session()
+        excluded = set(session["excluded"]) if session else set()
+        excluded |= {int(i) for i in (exclude_ids or [])}
+
+        weather = None if ignore_weather else self.weather.get()
+        pool = all_items if ignore_weather else weather_filter(all_items, weather, today)
+        catalogue = [i for i in pool if i["id"] not in excluded]
+        laundry = sorted(i["id"] for i in catalogue if i["status"] == "laundry")
+        allowed = {i["id"]: i for i in catalogue if i["status"] == "clean"}
+        blocked, repeatable = blocked_outfits(db, cfg, today)
+        n = outfit_count(cfg, db)
+
+        system = [
+            {"type": "text", "text": SYSTEM_RULES + "\n\nStyle profile:\n" + style_profile(db)},
+            {"type": "text", "text": "Wardrobe catalogue (id | category/subtype | colours | pattern | formality | "
+                                     "warmth | seasons | layer | description):\n"
+                                     + "\n".join(catalogue_line(i) for i in catalogue),
+             "cache_control": {"type": "ephemeral"}},
+        ]
+        volatile = [
+            f"Request: {message}",
+            f"Today: {today.strftime('%A %d %B %Y')} ({season_of(today)})",
+            f"Weather: {weather['text']}" if weather and weather.get("text")
+            else "Weather: unknown (assume mild, no rain)" if not ignore_weather
+            else "Weather: ignore it for this request (the user may be travelling)",
+            f"Number of outfits wanted: {n}",
+            f"Unavailable right now (in the wash): {laundry or 'none'}",
+            f"Blocked outfits (worn in the last {cfg.repeat_days} days, do not repeat): "
+            f"{[sorted(s) for s in blocked] or 'none'}",
+        ]
+        if repeatable:
+            volatile.append("Yesterday's outfit may be worn a second day in a row: "
+                            f"{[sorted(s) for s in repeatable]}")
+        history = db.get_messages(session_id)[-2 * HISTORY_TURNS:]
+        messages = [{"role": m["role"], "content": m["content"]} for m in history]
+        messages.append({"role": "user", "content": "\n".join(volatile)})
+
+        advice = self._call(system, messages)
+        good, problems = self._split(advice, allowed, blocked)
+        if problems:
+            messages += [
+                {"role": "assistant", "content": advice.model_dump_json()},
+                {"role": "user", "content": "These outfits were invalid: " + "; ".join(problems)
+                 + ". Return corrected outfits that follow all rules."},
+            ]
+            advice = self._call(system, messages)
+            good, problems = self._split(advice, allowed, blocked)
+
+        excluded |= {i for i in advice.exclude_item_ids if i in {x["id"] for x in all_items}}
+        db.set_session_excluded(session_id, list(excluded))
+        db.replace_proposals(session_id)
+        weather_text = weather["text"] if weather and weather.get("text") else ""
+        outfit_ids = [db.add_outfit(session_id, o.name.strip()[:80], o.item_ids, o.rationale.strip(), weather_text)
+                      for o in good[:n]]
+        reply = advice.reply.strip() or "Here are some options."
+        if not good:
+            reply = "I couldn't build a valid outfit from what is available. " + reply
+        db.add_message(session_id, "user", message)
+        db.add_message(session_id, "assistant", json.dumps({
+            "reply": reply, "outfits": [o.model_dump() for o in good[:n]], "exclude_item_ids": sorted(excluded)}))
+        return {"session_id": session_id, "reply": reply, "outfit_ids": outfit_ids,
+                "pool": len(catalogue), "total": len(all_items)}
+
+    def _call(self, system: list[dict[str, Any]], messages: list[dict[str, Any]]) -> AdviceOut:
+        return self.llm.structured(
+            purpose="advice", model=self.cfg.stylist_model, system=system, messages=messages,
+            out_model=AdviceOut, max_tokens=16000, thinking="adaptive", effort=self.cfg.stylist_effort,
+        )
+
+    @staticmethod
+    def _split(advice: AdviceOut, allowed: dict[int, dict[str, Any]], blocked: list[frozenset[int]]):
+        good, problems, seen = [], [], set()
+        for o in advice.outfits:
+            err = validate_outfit(o.item_ids, allowed, blocked)
+            if not err and frozenset(o.item_ids) in seen:
+                err = "duplicates another suggested outfit"
+            if err:
+                problems.append(f"'{o.name}' {err}")
+            else:
+                good.append(o)
+                seen.add(frozenset(o.item_ids))
+        return good, problems
+
+
+# --------------------------------------------------------------------------- choosing, wearing, laundry
+def wash_after(item: dict[str, Any]) -> int:
+    cat = item["category"]
+    return WASH_AFTER.get((cat, item["layer"]), WASH_AFTER.get((cat, None), 0))
+
+
+def choose_outfit(db: Database, cfg: Config, outfit_id: int) -> None:
+    today = today_date(cfg).isoformat()
+    db.update_outfit(outfit_id, status="chosen", chosen_on=today)
+    db.demote_chosen(today, outfit_id)
+
+
+def wear_outfit(db: Database, outfit_id: int, on: str) -> None:
+    """Mark as worn: bump wear counters and send items to the wash when they hit their limit."""
+    outfit = db.get_outfit(outfit_id)
+    if not outfit or outfit["status"] == "worn":
+        return
+    for item in db.items_by_ids(outfit["item_ids"]).values():
+        wears = item["wears_since_wash"] + 1
+        limit = wash_after(item)
+        fields: dict[str, Any] = {"wears_since_wash": wears, "last_worn": on}
+        if limit and wears >= limit:
+            fields["status"] = "laundry"
+        db.update_item(item["id"], fields)
+    db.update_outfit(outfit_id, status="worn", worn_on=on)
+
+
+def sync_worn(db: Database, cfg: Config) -> None:
+    """Outfits chosen on an earlier day count as worn (idempotent; runs whenever state is read)."""
+    today = today_date(cfg).isoformat()
+    for o in db.list_outfits(statuses=("chosen",)):
+        if o["chosen_on"] and o["chosen_on"] < today:
+            wear_outfit(db, o["id"], o["chosen_on"])
+
+
+def mark_clean(db: Database, item_ids: list[int]) -> None:
+    for i in item_ids:
+        db.update_item(i, {"status": "clean", "wears_since_wash": 0})

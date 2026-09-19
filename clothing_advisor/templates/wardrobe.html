@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Wardrobe <span class="muted">({{ items|length }})</span></h1>
+<div class="chips">
+  <a class="chip {{ '' if category or status else 'on' }}" href="{{ u('/app/wardrobe') }}">All</a>
+  {% for c in CATEGORIES %}<a class="chip {{ 'on' if category == c else '' }}" href="{{ u('/app/wardrobe?category=' ~ c) }}">{{ c }}</a>{% endfor %}
+  <a class="chip {{ 'on' if status == 'laundry' else '' }}" href="{{ u('/app/wardrobe?status=laundry') }}">in the wash</a>
+  <a class="chip {{ 'on' if status == 'retired' else '' }}" href="{{ u('/app/wardrobe?status=retired') }}">retired</a>
+</div>
+<div class="grid">
+  {% for i in items %}
+  <a class="tile" href="{{ u('/app/item/' ~ i.id) }}">
+    <img loading="lazy" src="{{ u('/img/thumbs/' ~ i.thumb) }}" alt="">
+    <span class="cap">{{ i.subtype or i.category }}</span>
+    <span class="badges">
+      {% if not i.reviewed %}<b class="b warn">review</b>{% endif %}
+      {% if i.status == 'laundry' %}<b class="b">wash</b>{% endif %}
+      {% if i.status == 'retired' %}<b class="b">retired</b>{% endif %}
+    </span>
+  </a>
+  {% else %}<p class="muted">Nothing here yet.</p>{% endfor %}
+</div>
+{% endblock %}

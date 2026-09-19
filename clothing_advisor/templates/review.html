@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Review <span class="muted">({{ total }} waiting)</span></h1>
+<p class="muted small">Only approved items are used for advice. Correct anything the AI got wrong, then approve.</p>
+{% if total > 1 %}
+<form method="post" action="{{ u('/app/review/approve-all') }}" onsubmit="return confirm('Approve all {{ total }} items as they are?')">
+  <button>Approve all {{ total }} as they are</button>
+</form>
+{% endif %}
+{% for item in items %}
+<section class="card review">
+  <img class="hero small" src="{{ u('/img/photos/' ~ item.photo) }}" alt="">
+  {% set back = '/app/review' %}
+  {% include "_item_form.html" %}
+</section>
+{% else %}<p class="muted">Nothing to review.</p>{% endfor %}
+{% if total > items|length %}<p class="muted">Showing the first {{ items|length }}; approve these to see more.</p>{% endif %}
+{% if other %}
+<h2>Not catalogued yet</h2>
+<ul class="plain">
+  {% for i in other %}<li><img class="mini" src="{{ u('/img/thumbs/' ~ i.thumb) }}" alt=""> #{{ i.id }} — {{ i.ai_state }} {{ i.ai_error }}
+    {% if i.ai_state == 'error' %}<form class="inline" method="post" action="{{ u('/app/item/' ~ i.id ~ '/recatalogue') }}"><button>Retry</button></form>
+    <form class="inline" method="post" action="{{ u('/app/item/' ~ i.id ~ '/delete') }}"><button class="danger">Delete</button></form>{% endif %}</li>{% endfor %}
+</ul>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,5 @@
+# Phone: the full app (chat, choose, add photos, wardrobe) inside the same dashboard.
+# The token in the URL is your CA_ACCESS_TOKEN; the app remembers it in a cookie after the first load.
+type: iframe
+url: https://ca.example.nl/app?t=YOUR_CA_ACCESS_TOKEN
+aspect_ratio: 170%

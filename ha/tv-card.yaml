@@ -1,0 +1,28 @@
+# TV kiosk: read-only tile, put it in a section of your sections view.
+# Shows today's chosen outfit when there is one, otherwise the current suggestions side by side.
+# (Untested against your HA version: if the table renders oddly, switch to one outfit per block.)
+type: markdown
+title: Outfit
+content: |-
+  {% set s = 'sensor.clothing_advisor' -%}
+  {% set today = state_attr(s, 'today_outfit') -%}
+  {% set outfits = state_attr(s, 'outfits') or [] -%}
+  {% if today -%}
+  ### Today: {{ today.name }}
+
+  ![]({{ today.image }})
+
+  {{ today['items_text'] }}
+  {%- elif outfits | length > 0 -%}
+  |{% for o in outfits %} {{ loop.index }}. {{ o.name }} |{% endfor %}
+  |{% for o in outfits %}---|{% endfor %}
+  |{% for o in outfits %} ![]({{ o.image }}) |{% endfor %}
+  |{% for o in outfits %} {{ o.reason }} |{% endfor %}
+  {%- else -%}
+  No suggestions yet. Ask from your phone.
+  {%- endif %}
+card_mod:
+  style: |
+    ha-card { background: rgba(0,0,0,.35); border-radius: 18px; }
+    ha-markdown img { border-radius: 12px; width: 100%; }
+    ha-markdown { font-size: 1.1em; }

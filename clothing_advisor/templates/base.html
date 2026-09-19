@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Clothing Advisor</title>
+<link rel="stylesheet" href="/static/app.css">
+<script>window.CA = {t: {{ token|tojson }}};</script>
+<script src="/static/app.js" defer></script>
+{% block head %}{% endblock %}
+</head>
+<body>
+<header>
+  <nav>
+    {% for label, path in nav %}
+    <a href="{{ u(path) }}" class="{{ 'on' if active == path else '' }}">{{ label }}</a>
+    {% endfor %}
+  </nav>
+</header>
+{% if cost.pct >= 100 %}
+<div class="banner bad">Monthly Claude budget used up (EUR {{ '%.2f'|format(cost.spend_eur) }} of {{ '%.2f'|format(cost.budget_eur) }}).
+  {% if cost.mode == 'enforce' %}New requests are blocked. <a href="{{ u('/app/costs') }}">Raise the budget</a>.{% endif %}</div>
+{% elif cost.pct >= 80 %}
+<div class="banner warn">{{ '%.0f'|format(cost.pct) }}% of the monthly Claude budget used (EUR {{ '%.2f'|format(cost.spend_eur) }} of {{ '%.2f'|format(cost.budget_eur) }}).</div>
+{% endif %}
+{% if msg %}<div class="banner info">{{ msg }}</div>{% endif %}
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

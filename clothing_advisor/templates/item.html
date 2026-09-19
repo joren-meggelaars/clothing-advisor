@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="{{ u('/app/wardrobe') }}">&larr; Wardrobe</a></p>
+<img class="hero" src="{{ u('/img/photos/' ~ item.photo) }}" alt="">
+<p class="muted small">
+  Status: <b>{{ item.status }}</b> · worn {{ item.wears_since_wash }}× since last wash
+  {% if item.last_worn %}· last worn {{ item.last_worn }}{% endif %}
+  {% if item.ai_state != 'done' %}· AI: {{ item.ai_state }} {{ item.ai_error }}{% endif %}
+</p>
+{% set back = '/app/wardrobe' %}
+{% include "_item_form.html" %}
+<section class="card">
+  <h2>Status</h2>
+  <div class="row">
+    {% for s in ('clean', 'laundry', 'retired') %}
+    <form method="post" action="{{ u('/app/item/' ~ item.id ~ '/status') }}"><button name="status" value="{{ s }}" {{ 'disabled' if item.status == s }}>{{ {'clean':'Clean','laundry':'In the wash','retired':'Retire'}[s] }}</button></form>
+    {% endfor %}
+  </div>
+</section>
+<section class="card">
+  <h2>More</h2>
+  <div class="row">
+    <form method="post" action="{{ u('/app/item/' ~ item.id ~ '/recatalogue') }}" onsubmit="return confirm('Ask Claude again? Costs about EUR {{ '%.3f'|format(per_photo) }}. Your manual edits are kept.')"><button>Re-catalogue with AI</button></form>
+    <form method="post" action="{{ u('/app/item/' ~ item.id ~ '/delete') }}" onsubmit="return confirm('Delete this item and its photo?')"><button class="danger">Delete</button></form>
+  </div>
+</section>
+{% endblock %}

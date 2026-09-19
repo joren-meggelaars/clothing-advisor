@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block head %}<script src="/static/advice.js" defer></script>{% endblock %}
+{% block content %}
+{% if counts.reviewed < 3 %}
+<div class="banner info">Your wardrobe is empty or not reviewed yet. <a href="{{ u('/app/add') }}">Add photos</a>, then approve them on the <a href="{{ u('/app/review') }}">Review</a> page.</div>
+{% endif %}
+<div id="today"></div>
+
+<section class="card">
+  <div class="chips" id="chips">
+    <button type="button" data-q="Something casual">Casual</button>
+    <button type="button" data-q="Something casual chic">Casual chic</button>
+    <button type="button" data-q="Something for a warm day">Warm day</button>
+    <button type="button" data-q="Something for cold, wet weather">Cold &amp; wet</button>
+    <button type="button" data-q="Something a bit more formal, but not a suit">Smarter</button>
+  </div>
+  <form id="ask" autocomplete="off">
+    <input type="text" id="q" maxlength="1000" placeholder="e.g. something casual, or: lighter, not those trousers" required>
+    <div class="row">
+      <label class="chk"><input type="radio" name="mode" value="new" checked> New request</label>
+      <label class="chk"><input type="radio" name="mode" value="refine"> Refine current</label>
+      <label class="chk"><input type="checkbox" id="noweather"> Ignore weather</label>
+    </div>
+    <button type="submit" id="go" class="primary">Suggest {{ n }} outfits</button>
+  </form>
+  {% if not weather_on %}<p class="muted small">No weather entity set yet, so advice uses the season only. Set it under <a href="{{ u('/app/settings') }}">Settings</a>.</p>{% endif %}
+</section>
+
+<div id="status" class="muted"></div>
+<p id="reply" class="reply"></p>
+<div id="outfits"></div>
+{% endblock %}

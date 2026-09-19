@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Costs</h1>
+<section class="card">
+  <p class="big">EUR {{ '%.2f'|format(cost.spend_eur) }} <span class="muted">of {{ '%.2f'|format(cost.budget_eur) }} this month ({{ cost.ym }})</span></p>
+  <div class="bar"><i style="width: {{ [cost.pct, 100]|min }}%" class="{{ 'bad' if cost.pct >= 100 else 'warn' if cost.pct >= 80 else '' }}"></i></div>
+  <p class="small">Projected for the whole month: <b>EUR {{ '%.2f'|format(cost.projected_eur) }}</b> · limit mode: <b>{{ cost.mode }}</b>
+    ({{ 'new Claude requests stop at 100%' if cost.mode == 'enforce' else 'alerts only' }})</p>
+  <p class="small">Alerts at {{ cfg.alert_pcts|join('%, ') }}% · already sent this month: {{ cost.alerts_fired|join('%, ') ~ '%' if cost.alerts_fired else 'none' }}
+    · channels: {{ cost.channels|join(', ') if cost.channels else 'none configured (banner only)' }}</p>
+  <form method="post" action="{{ u('/app/costs/budget') }}" class="row">
+    <label>Monthly budget (EUR) <input name="budget" type="number" step="0.5" min="1" value="{{ '%.2f'|format(cost.budget_eur) }}"></label>
+    <button>Set</button>
+  </form>
+  <form method="post" action="{{ u('/app/costs/test-notify') }}"><button>Send test notification</button></form>
+</section>
+
+<section class="card">
+  <h2>This month by purpose</h2>
+  <table>
+    <tr><th>Purpose</th><th>Calls</th><th>EUR</th><th>Tokens in / out</th><th>Cache read</th></tr>
+    {% for r in by_purpose %}<tr><td>{{ r.purpose }}</td><td>{{ r.calls }}</td><td>{{ '%.3f'|format(r.eur) }}</td><td>{{ r.in_tok }} / {{ r.out_tok }}</td><td>{{ r.cache_read }}</td></tr>
+    {% else %}<tr><td colspan="5" class="muted">No calls yet.</td></tr>{% endfor %}
+  </table>
+  <p class="small muted">Average per catalogued photo: {{ ('EUR %.4f (%d calls)'|format(cat_avg, cat_n)) if cat_n else '–' }}
+    · per advice request: {{ ('EUR %.4f (%d calls)'|format(adv_avg, adv_n)) if adv_n else '–' }}</p>
+  <p class="small muted">These are estimates from token counts × list prices (EUR/USD {{ cfg.usd_eur }}). The Anthropic console is the source of truth.</p>
+</section>
+
+<section class="card">
+  <h2>Latest calls</h2>
+  <table>
+    <tr><th>When (UTC)</th><th>Purpose</th><th>Model</th><th>EUR</th></tr>
+    {% for r in recent %}<tr><td>{{ r.ts[5:16]|replace('T', ' ') }}</td><td>{{ r.purpose }}</td><td>{{ r.model }}</td><td>{{ '%.4f'|format(r.cost_eur) }}</td></tr>{% endfor %}
+  </table>
+</section>
+{% endblock %}

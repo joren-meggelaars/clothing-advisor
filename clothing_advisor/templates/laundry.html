@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>In the wash <span class="muted">({{ items|length }})</span></h1>
+<p class="muted small">Items go here automatically after enough wears (t-shirt 1×, sweater 3×, trousers 4×). They are left out of advice until you mark them clean.</p>
+{% if items %}
+<form method="post" action="{{ u('/app/laundry/clean') }}">
+  <div class="grid">
+    {% for i in items %}
+    <label class="tile pick">
+      <input type="checkbox" name="ids" value="{{ i.id }}">
+      <img loading="lazy" src="{{ u('/img/thumbs/' ~ i.thumb) }}" alt="">
+      <span class="cap">{{ i.subtype or i.category }}</span>
+    </label>
+    {% endfor %}
+  </div>
+  <div class="row">
+    <button class="primary">Mark selected clean</button>
+    <button name="all_items" value="1">Everything is clean</button>
+  </div>
+</form>
+{% else %}<p class="muted">Nothing in the wash.</p>{% endif %}
+{% endblock %}
