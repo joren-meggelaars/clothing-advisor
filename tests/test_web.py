@@ -138,3 +138,64 @@ def test_queue_reports_why_items_failed(client):
     assert q["error"] == 1 and q["failed_items"] == [{"id": item_id, "error": "Claude declined this request."}]
     bad = client.post("/api/upload", files={"file": ("notes.txt", b"nope", "text/plain")}, headers=h)
     assert bad.status_code == 400 and "readable image" in bad.json()["detail"]
+
+
+# ------------------------------------------------------------------ ratings through the API and the settings page
+def _proposed_outfit(client, fake):
+    h = {"Authorization": f"Bearer {TOKEN}"}
+    w = _wardrobe(client.ctx)
+    fake.queue({"reply": "ok", "outfits": [
+        {"name": "Tee & chinos", "item_ids": [w["top"], w["bottom"], w["footwear"]], "rationale": "easy"}],
+        "exclude_item_ids": []})
+    state = client.post("/api/advice", json={"message": "casual", "new_session": True}, headers=h).json()
+    return h, state["outfits"][0]["id"]
+
+
+def test_rate_endpoint_stores_stage_specific_ratings(client, fake):
+    h, oid = _proposed_outfit(client, fake)
+    assert client.post(f"/api/outfits/{oid}/rate", json={"stars": 0}, headers=h).status_code == 400
+    assert client.post(f"/api/outfits/{oid}/rate", json={"stars": "x"}, headers=h).status_code == 400
+    assert client.post("/api/outfits/999/rate", json={"stars": 3}, headers=h).status_code == 404
+
+    state = client.post(f"/api/outfits/{oid}/rate", headers=h,
+                        json={"stars": 4, "comment": "  nice  ", "reasons": ["colours", "bogus"]}).json()
+    assert state["outfits"][0]["rating"] == {"stars": 4, "comment": "nice", "reasons": ["colours"]}
+
+    client.post(f"/api/outfits/{oid}/choose", headers=h)
+    worn = client.post(f"/api/outfits/{oid}/worn", headers=h).json()
+    assert worn["today"]["rating"] is None                             # the first impression is not the worn rating
+    worn = client.post(f"/api/outfits/{oid}/rate", json={"stars": 5}, headers=h).json()
+    assert worn["today"]["rating"]["stars"] == 5
+    assert {r["context"]: r["stars"] for r in client.ctx.db.ratings_for_outfit(oid)} == {"suggestion": 4, "worn": 5}
+
+
+def test_not_this_records_a_one_star_rating_with_reasons(client, fake):
+    h, oid = _proposed_outfit(client, fake)
+    state = client.post(f"/api/outfits/{oid}/reject", json={"reasons": ["too warm"], "comment": "too heavy"}, headers=h).json()
+    assert state["outfits"] == []
+    [r] = client.ctx.db.ratings_for_outfit(oid)
+    assert (r["stars"], r["reasons"], r["comment"], r["context"]) == (1, ["too warm"], "too heavy", "suggestion")
+    assert client.post(f"/api/outfits/{oid}/reject", headers=h).status_code == 200   # body is optional
+
+
+def test_tenth_rating_refreshes_the_taste_profile_in_the_background(client, fake):
+    h, oid = _proposed_outfit(client, fake)
+    db = client.ctx.db   # ten distinct rated outfits: nine seeded directly, the tenth through the API
+    ids = [oid] + [db.add_outfit(db.latest_session()["id"], f"X{i}", db.get_outfit(oid)["item_ids"], "", "") for i in range(9)]
+    for i, o in enumerate(ids[:-1]):
+        db.upsert_rating(o, "suggestion", 3, "", [])
+    fake.queue({"profile": "- likes simple tees"})
+    client.post(f"/api/outfits/{ids[-1]}/rate", json={"stars": 5}, headers=h)   # the 10th rating triggers it
+    assert client.ctx.taste.profile() == "- likes simple tees"
+
+
+def test_settings_page_taste_actions(client, fake):
+    h = {"Authorization": f"Bearer {TOKEN}"}
+    page = client.get("/app/settings", headers=h)
+    assert page.status_code == 200 and "Learned taste" in page.text
+    client.post("/app/settings/taste", data={"taste_profile": "- my own line", "action": "save"}, headers=h, follow_redirects=False)
+    assert client.ctx.taste.profile() == "- my own line" and "my own line" in client.get("/app/settings", headers=h).text
+    r = client.post("/app/settings/taste", data={"action": "update"}, headers=h, follow_redirects=False)
+    assert "No%20new%20ratings" in r.headers["location"] and fake.calls == []
+    client.post("/app/settings/taste", data={"action": "reset"}, headers=h, follow_redirects=False)
+    assert client.ctx.taste.profile() == ""

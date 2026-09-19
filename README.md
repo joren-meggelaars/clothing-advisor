@@ -27,6 +27,11 @@ TV kiosk ── REST sensor ─┼─ NPM (https) ──► clothing-advisor ─
 4. **Wear tracking**: choosing an outfit makes it "today's outfit"; it counts as worn at the end of the day. Items go
    to the wash after t-shirt 1x, sweater 3x, trousers 4x, outerwear 20x (shoes/accessories never).
 
+5. **Ratings**: rate any suggestion 1-5 stars (optionally with reason chips and a note), and rate an outfit again after
+   wearing it ("worn" ratings count more). "Not this" is a 1-star rating with a reason. The last 15 ratings go into every
+   advice request, outfits rated 2 stars or lower are never proposed again for 90 days, and after every 10 new ratings
+   Claude refreshes a short *learned taste* profile (visible and editable under Settings, about EUR 0.01-0.02 per update).
+
 ## Cost control
 
 Every Claude call is logged with tokens and an EUR estimate (Costs page). `MONTHLY_BUDGET_EUR` (default 10) has

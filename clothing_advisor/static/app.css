@@ -72,3 +72,11 @@ progress { width: 100%; }
 .part button { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; padding: 0; border-radius: 50%;
   line-height: 20px; font-size: .8rem; }
 .todaycard { border: 2px solid var(--accent); }
+
+.rate { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+.stars { display: inline-flex; }
+.stars button.star { border: 0; background: none; padding: 2px 5px; font-size: 1.7rem; line-height: 1; color: var(--line); cursor: pointer; }
+.stars button.star.on { color: #e0a341; }
+.fb { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
+.chips button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.fb .chips button { padding: 6px 11px; font-size: .85rem; }

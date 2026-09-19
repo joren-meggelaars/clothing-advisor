@@ -1,3 +1,4 @@
+import copy
 import io
 import json
 from types import SimpleNamespace
@@ -24,7 +25,7 @@ class FakeAnthropic:
         self.texts.extend(t if isinstance(t, str) else json.dumps(t) for t in texts)
 
     def _create(self, **kw):
-        self.calls.append(kw)
+        self.calls.append(copy.deepcopy(kw))   # the app mutates its message list after the call
         text = self.texts.pop(0) if self.texts else "{}"
         return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)], stop_reason="end_turn",
                                usage=SimpleNamespace(**self.usage))

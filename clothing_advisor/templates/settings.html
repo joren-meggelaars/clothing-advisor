@@ -15,4 +15,28 @@
   <button class="primary">Save</button>
 </form>
 <form method="post" action="{{ u('/app/settings/test-weather') }}"><button>Test weather</button></form>
+
+<section class="card">
+  <h2>Learned taste</h2>
+  <p class="muted small">Built from your star ratings and notes, and used in every request. You can edit it. It is refreshed
+    after every {{ distill_every }} new ratings ({{ taste.new }} new since the last update{{ ', next update in ' ~ taste.next_in if taste.next_in else ', due with the next rating' }}).
+    {{ taste.total }} ratings in total{% if taste.updated %} · updated {{ taste.updated[:16]|replace('T', ' ') }} UTC{% endif %}.
+    Each update costs about EUR 0.01-0.02.</p>
+  <form method="post" action="{{ u('/app/settings/taste') }}">
+    <textarea name="taste_profile" rows="8" maxlength="2000" placeholder="Nothing learned yet. Rate a few outfits first.">{{ taste_profile }}</textarea>
+    <div class="row">
+      <button class="primary" name="action" value="save">Save</button>
+      <button name="action" value="update" onclick="return confirm('Ask Claude to update the profile from your ratings now?')">Update now</button>
+      <button class="danger" name="action" value="reset" onclick="return confirm('Clear the learned taste? Your ratings are kept.')">Clear</button>
+    </div>
+  </form>
+  {% if taste.recent %}
+  <h2>Latest ratings</h2>
+  <table>
+    <tr><th>Outfit</th><th>When</th><th>★</th><th>Feedback</th></tr>
+    {% for r in taste.recent %}<tr><td>{{ r.outfit_name }}</td><td>{{ r.context }}</td><td>{{ r.stars }}</td>
+      <td>{{ (r.reasons|join(', ')) }}{{ ' — ' if r.reasons and r.comment }}{{ r.comment }}</td></tr>{% endfor %}
+  </table>
+  {% endif %}
+</section>
 {% endblock %}

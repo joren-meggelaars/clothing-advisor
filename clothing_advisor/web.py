@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -22,6 +22,7 @@ from .context import Ctx, build_ctx
 from .db import EDITABLE_ITEM_FIELDS
 from .llm import LlmError
 from .schema import CATEGORIES, LAYERS, PATTERNS, SEASONS
+from .taste import DISTILL_EVERY, RATING_REASONS
 from .usage import BudgetExceeded
 
 log = logging.getLogger("clothing_advisor")
@@ -107,6 +108,14 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
     def today() -> str:
         return stylist.today_date(cfg).isoformat()
 
+    def rating_of(o: dict[str, Any]) -> dict[str, Any] | None:
+        """The rating that belongs to the outfit's current stage: worn outfits show the 'worn' rating."""
+        wanted = "worn" if o["status"] == "worn" else "suggestion"
+        for r in ctx.db.ratings_for_outfit(o["id"]):
+            if r["context"] == wanted:
+                return {"stars": r["stars"], "comment": r["comment"], "reasons": r["reasons"]}
+        return None
+
     def outfit_view(request: Request, o: dict[str, Any], *, tv: bool = False) -> dict[str, Any]:
         items = sorted(ctx.db.items_by_ids(o["item_ids"]).values(),
                        key=lambda i: (SLOT_ORDER.get(i["category"], 9), i["id"]))
@@ -120,6 +129,7 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
         view = {"id": o["id"], "name": o["name"], "reason": o["reason"], "status": o["status"], "image": image,
                 "items_text": " · ".join(f"{' '.join(i['colors'][:1])} {i['subtype']}".strip() for i in items)}
         if not tv:
+            view["rating"] = rating_of(o)
             view["items"] = [{"id": i["id"], "subtype": i["subtype"], "thumb": url(request, f"/img/thumbs/{i['thumb']}")}
                              for i in items]
         return view
@@ -300,7 +310,8 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
         return render(request, "settings.html", active="/app/settings", profile=stylist.style_profile(ctx.db),
                       weather_entity=ctx.weather.entity(), notify_service=ctx.notifier.ha_service(),
                       outfit_n=stylist.outfit_count(cfg, ctx.db), ha_ok=bool(cfg.ha_url and cfg.ha_token),
-                      channels=ctx.notifier.channels())
+                      channels=ctx.notifier.channels(), taste_profile=ctx.taste.profile(),
+                      taste=ctx.taste.status(), distill_every=DISTILL_EVERY)
 
     @app.post("/app/settings")
     def settings_save(request: Request, profile: str = Form(""), weather_entity: str = Form(""),
@@ -310,6 +321,21 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
         ctx.db.set_setting("notify_service", notify_service.strip())
         ctx.db.set_setting("outfit_count", str(min(max(outfit_n, 1), 6)))
         return redirect(request, "/app/settings", "Settings saved")
+
+    @app.post("/app/settings/taste")
+    def settings_taste(request: Request, taste_profile: str = Form(""), action: str = Form("save")):
+        if action == "reset":
+            ctx.taste.reset()
+            return redirect(request, "/app/settings", "Taste profile cleared")
+        if action == "update":
+            try:
+                done = ctx.taste.distill(force=True)
+            except (LlmError, BudgetExceeded) as e:
+                return redirect(request, "/app/settings", f"Could not update: {e}")
+            return redirect(request, "/app/settings",
+                            "Taste profile updated from your ratings" if done else "No new ratings since the last update")
+        ctx.db.set_setting("taste_profile", taste_profile.strip()[:2000])
+        return redirect(request, "/app/settings", "Taste profile saved")
 
     @app.post("/app/settings/test-weather")
     def settings_test_weather(request: Request):
@@ -378,10 +404,35 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
         stylist.wear_outfit(ctx.db, outfit_id, today())
         return advice_state(request)
 
+    def _clean_feedback(payload: dict[str, Any] | None) -> tuple[str, list[str]]:
+        payload = payload or {}
+        comment = str(payload.get("comment", "")).strip()[:500]
+        reasons = [r for r in payload.get("reasons", []) if r in RATING_REASONS]
+        return comment, reasons
+
+    @app.post("/api/outfits/{outfit_id}/rate")
+    def api_rate(outfit_id: int, request: Request, background: BackgroundTasks,
+                 payload: dict[str, Any] = Body(...)):
+        o = _outfit_or_404(outfit_id)
+        try:
+            stars = int(payload.get("stars", 0))
+        except (TypeError, ValueError):
+            stars = 0
+        if not 1 <= stars <= 5:
+            raise HTTPException(400, "Rate between 1 and 5 stars")
+        comment, reasons = _clean_feedback(payload)
+        ctx.db.upsert_rating(outfit_id, "worn" if o["status"] == "worn" else "suggestion", stars, comment, reasons)
+        background.add_task(ctx.taste.maybe_distill)
+        return advice_state(request)
+
     @app.post("/api/outfits/{outfit_id}/reject")
-    def api_reject(outfit_id: int, request: Request):
+    def api_reject(outfit_id: int, request: Request, background: BackgroundTasks,
+                   payload: dict[str, Any] | None = Body(default=None)):
         _outfit_or_404(outfit_id)
+        comment, reasons = _clean_feedback(payload)
+        ctx.db.upsert_rating(outfit_id, "suggestion", 1, comment, reasons)   # "Not this" is a 1-star first impression
         ctx.db.update_outfit(outfit_id, status="rejected")
+        background.add_task(ctx.taste.maybe_distill)
         return advice_state(request)
 
     @app.get("/api/tv")

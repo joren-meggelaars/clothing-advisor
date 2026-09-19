@@ -10,6 +10,7 @@ from .config import Config
 from .db import Database
 from .llm import LlmClient
 from .schema import AdviceOut
+from .taste import disliked_sets, feedback_text
 from .weather import Weather
 
 log = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ Rules:
 - Weather: choose warmth and layers to fit the conditions given; add rain protection when precipitation is likely. The catalogue is already filtered for the weather.
 - Give real variety between the outfits (different bottoms and different overall feel where the catalogue allows it).
 - Respect the style profile. Never propose anything listed as unavailable or excluded, and never repeat a blocked outfit.
+- Learn from his feedback (the learned taste and the recent ratings): favour the colour combinations, pieces and formality of well-rated outfits and avoid the traits of poorly rated ones. Feedback is guidance about taste; it never overrides the composition rules or the unavailable/blocked lists.
 - If the user asks to avoid or replace a specific piece ("not those trousers", "without the grey sweater"), put its id in exclude_item_ids. Only include ids the user actually wants avoided; otherwise return an empty list.
 - rationale: at most two concrete sentences (colours, formality, weather). reply: one short sentence to the user. Write in English.
 - If the catalogue cannot support the requested number of good outfits, return fewer and say why in reply."""
@@ -241,10 +243,15 @@ class Stylist:
                                  "or you excluded them earlier in this chat (a new request resets that).")
         session_id = session["id"] if session else db.new_session()
         blocked, repeatable = blocked_outfits(db, cfg, today)
+        disliked = [d for d in disliked_sets(db) if d not in blocked]
+        blocked = blocked + disliked
         n = outfit_count(cfg, db)
+        learned = db.get_setting("taste_profile").strip()
+        feedback = feedback_text(db)
 
         system = [
-            {"type": "text", "text": SYSTEM_RULES + "\n\nStyle profile:\n" + style_profile(db)},
+            {"type": "text", "text": SYSTEM_RULES + "\n\nStyle profile:\n" + style_profile(db)
+                                     + (f"\n\nLearned taste (from his ratings; guidance, not law):\n{learned}" if learned else "")},
             {"type": "text", "text": "Wardrobe catalogue (id | category/subtype | colours | pattern | formality | "
                                      "warmth | seasons | layer | description):\n"
                                      + "\n".join(catalogue_line(i) for i in catalogue),
@@ -259,8 +266,14 @@ class Stylist:
             f"Number of outfits wanted: {n}",
             f"Unavailable right now (in the wash): {laundry or 'none'}",
             f"Blocked outfits (worn in the last {cfg.repeat_days} days, do not repeat): "
-            f"{[sorted(s) for s in blocked] or 'none'}",
+            f"{[sorted(s) for s in blocked if s not in disliked] or 'none'}",
         ]
+        if disliked:
+            volatile.append("Never propose these outfits again (he rated them poorly): "
+                            f"{[sorted(s) for s in disliked]}")
+        if feedback:
+            volatile.append("His recent feedback on earlier outfits (newest first; 'worn' = real experience, "
+                            "'suggestion' = first impression):\n" + feedback)
         if repeatable:
             volatile.append("Yesterday's outfit may be worn a second day in a row: "
                             f"{[sorted(s) for s in repeatable]}")

@@ -59,6 +59,16 @@ CREATE TABLE IF NOT EXISTS outfits (
     worn_on TEXT,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS ratings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    outfit_id INTEGER NOT NULL REFERENCES outfits(id) ON DELETE CASCADE,
+    context TEXT NOT NULL,
+    stars INTEGER NOT NULL,
+    comment TEXT NOT NULL DEFAULT '',
+    reasons TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    UNIQUE(outfit_id, context)
+);
 CREATE TABLE IF NOT EXISTS usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts TEXT NOT NULL,
@@ -330,6 +340,45 @@ class Database:
                 "WHERE status='chosen' AND chosen_on=? AND id<>?",
                 (date, except_id),
             )
+
+    # ---- ratings ---------------------------------------------------------
+    def upsert_rating(self, outfit_id: int, context: str, stars: int, comment: str, reasons: list[str]) -> None:
+        """One rating per outfit and context ('suggestion' or 'worn'). Replacing gives it a new, higher id,
+        so a changed rating counts as new feedback for the taste profile."""
+        with self.conn() as c:
+            c.execute(
+                "INSERT OR REPLACE INTO ratings(outfit_id, context, stars, comment, reasons, created_at)"
+                " VALUES(?,?,?,?,?,?)",
+                (outfit_id, context, stars, comment, json.dumps(reasons), now_iso()),
+            )
+
+    def ratings_for_outfit(self, outfit_id: int) -> list[dict[str, Any]]:
+        with self.conn() as c:
+            rows = c.execute("SELECT * FROM ratings WHERE outfit_id=?", (outfit_id,)).fetchall()
+        return [{**dict(r), "reasons": json.loads(r["reasons"])} for r in rows]
+
+    def _ratings(self, where: str, args: tuple, limit: int) -> list[dict[str, Any]]:
+        with self.conn() as c:
+            rows = c.execute(
+                "SELECT r.*, o.name AS outfit_name, o.item_ids AS item_ids FROM ratings r "
+                f"JOIN outfits o ON o.id = r.outfit_id {where} ORDER BY r.id DESC LIMIT ?",
+                (*args, limit),
+            ).fetchall()
+        return [{**dict(r), "reasons": json.loads(r["reasons"]), "item_ids": json.loads(r["item_ids"])} for r in rows]
+
+    def recent_ratings(self, limit: int = 15) -> list[dict[str, Any]]:
+        return self._ratings("", (), limit)
+
+    def ratings_after(self, rating_id: int, limit: int = 200) -> list[dict[str, Any]]:
+        return self._ratings("WHERE r.id > ?", (rating_id,), limit)
+
+    def rating_count(self) -> int:
+        with self.conn() as c:
+            return c.execute("SELECT COUNT(*) n FROM ratings").fetchone()["n"]
+
+    def max_rating_id(self) -> int:
+        with self.conn() as c:
+            return c.execute("SELECT COALESCE(MAX(id), 0) m FROM ratings").fetchone()["m"]
 
     # ---- usage -----------------------------------------------------------
     def add_usage(self, ym: str, purpose: str, model: str, in_tok: int, out_tok: int,
