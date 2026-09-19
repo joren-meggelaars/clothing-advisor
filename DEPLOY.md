@@ -22,7 +22,15 @@ Remember to write every literal `$` in `.env` values as `$$`.
 ## 2. Nginx Proxy Manager
 
 Proxy Host `ca.<your domain>` -> scheme **http**, forward host = VM IP, port 8080, SSL certificate with "Force SSL".
-No websockets needed. Set `PUBLIC_BASE_URL=https://ca.<your domain>` in `.env` and `HA_ORIGIN` to your HA https origin.
+No websockets needed. Under the host's **Advanced** tab add:
+
+```
+client_max_body_size 30m;   # phone photos; without it uploads fail with "Load failed" / HTTP 413
+proxy_read_timeout 180s;    # an advice request with thinking can take over a minute
+proxy_send_timeout 180s;
+```
+
+ Set `PUBLIC_BASE_URL=https://ca.<your domain>` in `.env` and `HA_ORIGIN` to your HA https origin.
 Note: the proxy's access log records URLs including `?t=<token>`; after the first load the app uses a cookie instead.
 
 ## 3. Home Assistant
