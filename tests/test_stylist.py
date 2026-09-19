@@ -215,3 +215,54 @@ def test_advice_needs_a_minimum_wardrobe(ctx, fake):
     with pytest.raises(ValueError):
         stylist.Stylist(ctx.cfg, ctx.db, ctx.llm, ctx.weather).advise("casual")
     assert fake.calls == []
+
+
+# ------------------------------------------------------------------ readiness / error messages
+def test_readiness_empty_wardrobe(ctx):
+    ok, msg = stylist.wardrobe_readiness(ctx.db)
+    assert not ok and "empty" in msg
+
+
+def test_readiness_explains_unapproved_items_and_missing_shoes(ctx):
+    for n, (cat, layer) in enumerate([("top", "base"), ("top", "base"), ("bottom", "none"), ("accessory", "none")], start=1):
+        add_item(ctx, n, cat, "x", layer=layer, reviewed=False)
+    ok, msg = stylist.wardrobe_readiness(ctx.db)
+    assert not ok
+    assert "No approved tops, bottoms or shoes" in msg
+    assert "Approved: 0 of 4 items." in msg
+    assert "2 top" in msg and "1 bottom" in msg and "1 accessory" in msg     # what the AI made of the photos
+    assert "None of the photos waiting was recognised as shoes" in msg
+
+
+def test_readiness_only_shoes_missing_and_still_processing(ctx):
+    add_item(ctx, 1, "top", "t", layer="base")
+    add_item(ctx, 2, "bottom", "b")
+    queued = ctx.db.add_item("shaq", "q.jpg", "q.jpg")          # still queued for the AI
+    ok, msg = stylist.wardrobe_readiness(ctx.db)
+    assert not ok and msg.startswith("No approved shoes yet.")
+    assert "Approved: 2 of 3 items (1 bottom, 1 top)." in msg
+    assert "1 photos are still being catalogued" in msg
+    add_item(ctx, 4, "footwear", "s")
+    assert stylist.wardrobe_readiness(ctx.db) == (True, "")
+
+
+def test_readiness_says_approve_when_the_waiting_items_would_fill_the_gap(ctx):
+    add_item(ctx, 1, "top", "t", layer="base")
+    add_item(ctx, 2, "bottom", "b")
+    add_item(ctx, 3, "footwear", "s", reviewed=False)
+    ok, msg = stylist.wardrobe_readiness(ctx.db)
+    assert not ok and "Approve them and advice will work." in msg
+
+
+def test_advice_error_uses_the_specific_message_and_costs_nothing(ctx, fake):
+    add_item(ctx, 1, "top", "t", layer="base", reviewed=False)
+    with pytest.raises(ValueError, match="Waiting for your approval"):
+        stylist.Stylist(ctx.cfg, ctx.db, ctx.llm, ctx.weather).advise("casual")
+    assert fake.calls == [] and ctx.db.latest_session() is None
+
+
+def test_all_shoes_in_the_wash_fails_early_without_creating_a_session(ctx, fake, wardrobe):
+    ctx.db.update_item(wardrobe["sneakers"], {"status": "laundry"})
+    with pytest.raises(ValueError, match="No clean shoes"):
+        stylist.Stylist(ctx.cfg, ctx.db, ctx.llm, ctx.weather).advise("casual")
+    assert fake.calls == [] and ctx.db.latest_session() is None

@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% block head %}<script src="/static/advice.js" defer></script>{% endblock %}
 {% block content %}
-{% if counts.reviewed < 3 %}
-<div class="banner info">Your wardrobe is empty or not reviewed yet. <a href="{{ u('/app/add') }}">Add photos</a>, then approve them on the <a href="{{ u('/app/review') }}">Review</a> page.</div>
+{% if not ready %}
+<div class="banner warn">{{ not_ready_reason }}
+  <a href="{{ u('/app/review') }}">Review</a> · <a href="{{ u('/app/wardrobe') }}">Wardrobe</a> · <a href="{{ u('/app/add') }}">Add photos</a></div>
 {% endif %}
 <div id="today"></div>
 

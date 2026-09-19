@@ -89,6 +89,54 @@ def usable_items(db: Database) -> list[dict[str, Any]]:
     return [i for i in db.list_items(reviewed=True) if i["status"] != "retired" and i["category"]]
 
 
+SLOTS = (("top", "tops"), ("bottom", "bottoms"), ("footwear", "shoes"))
+
+
+def _or(words: list[str]) -> str:
+    return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " or " + words[-1]
+
+
+def _counts(items: list[dict[str, Any]]) -> str:
+    seen: dict[str, int] = {}
+    for i in items:
+        seen[i["category"] or "unknown"] = seen.get(i["category"] or "unknown", 0) + 1
+    return ", ".join(f"{n} {c}" for c, n in sorted(seen.items())) or "nothing"
+
+
+def wardrobe_readiness(db: Database) -> tuple[bool, str]:
+    """Is there at least one approved top, bottom and pair of shoes? If not, explain exactly what is missing and why."""
+    items = db.list_items()
+    approved = [i for i in items if i["reviewed"] and i["status"] != "retired" and i["category"]]
+    missing = [label for cat, label in SLOTS if not any(i["category"] == cat for i in approved)]
+    if not missing:
+        return True, ""
+    if not items:
+        return False, "Your wardrobe is empty. Add photos first."
+
+    parts = [f"No approved {_or(missing)} yet."]
+    parts.append(f"Approved: {len(approved)} of {len(items)} items" + (f" ({_counts(approved)})." if approved else "."))
+    waiting = [i for i in items if not i["reviewed"] and i["ai_state"] == "done"]
+    if waiting:
+        parts.append(f"Waiting for your approval on the Review page: {_counts(waiting)}.")
+        absent = [label for cat, label in SLOTS
+                  if label in missing and not any(i["category"] == cat for i in waiting)]
+        if absent:
+            parts.append(f"None of the photos waiting was recognised as {_or(absent)}: check how the AI "
+                         "categorised them (Wardrobe page, tap an item to correct it) or add photos of them.")
+        else:
+            parts.append("Approve them and advice will work.")
+    busy = sum(1 for i in items if i["ai_state"] in ("queued", "processing"))
+    failed = sum(1 for i in items if i["ai_state"] == "error")
+    retired = sum(1 for i in items if i["status"] == "retired")
+    if busy:
+        parts.append(f"{busy} photos are still being catalogued.")
+    if failed:
+        parts.append(f"{failed} photos failed to catalogue (retry them on the Review page).")
+    if retired:
+        parts.append(f"{retired} retired items are ignored.")
+    return False, " ".join(parts)
+
+
 def catalogue_line(i: dict[str, Any]) -> str:
     return (f"#{i['id']} | {i['category']}/{i['subtype']} | {','.join(i['colors'])} | {i['pattern']} | "
             f"formality {i['formality']} | warmth {i['warmth']} | {','.join(i['seasons'])} | layer {i['layer']}"
@@ -172,13 +220,12 @@ class Stylist:
         if not message:
             raise ValueError("Say what you are looking for (e.g. 'something casual').")
 
+        ready, why_not = wardrobe_readiness(db)
+        if not ready:
+            raise ValueError(why_not)
         all_items = usable_items(db)
-        if not any(i["category"] == "top" for i in all_items) or not any(
-                i["category"] == "bottom" for i in all_items) or not any(i["category"] == "footwear" for i in all_items):
-            raise ValueError("The wardrobe needs at least one reviewed top, bottom and pair of shoes first.")
 
         session = None if new_session else current_session(db, cfg)
-        session_id = session["id"] if session else db.new_session()
         excluded = set(session["excluded"]) if session else set()
         excluded |= {int(i) for i in (exclude_ids or [])}
 
@@ -187,6 +234,12 @@ class Stylist:
         catalogue = [i for i in pool if i["id"] not in excluded]
         laundry = sorted(i["id"] for i in catalogue if i["status"] == "laundry")
         allowed = {i["id"]: i for i in catalogue if i["status"] == "clean"}
+        # Fail before spending anything when a whole slot is unavailable right now.
+        for cat, label in SLOTS:
+            if not any(i["category"] == cat for i in allowed.values()):
+                raise ValueError(f"No clean {label} are available right now: they are in the wash "
+                                 "or you excluded them earlier in this chat (a new request resets that).")
+        session_id = session["id"] if session else db.new_session()
         blocked, repeatable = blocked_outfits(db, cfg, today)
         n = outfit_count(cfg, db)
 

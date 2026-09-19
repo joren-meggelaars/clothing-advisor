@@ -164,8 +164,8 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
 
     @app.get("/app")
     def page_advice(request: Request):
-        counts = ctx.db.counts()
-        return render(request, "advice.html", active="/app", counts=counts,
+        ready, not_ready_reason = stylist.wardrobe_readiness(ctx.db)
+        return render(request, "advice.html", active="/app", ready=ready, not_ready_reason=not_ready_reason,
                       weather_on=bool(ctx.weather.entity()), n=stylist.outfit_count(cfg, ctx.db))
 
     @app.get("/app/wardrobe")
