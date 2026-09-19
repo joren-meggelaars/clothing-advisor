@@ -222,6 +222,11 @@ class Database:
                 out[r["ai_state"]] += r["n"]
         return out
 
+    def failed_items(self) -> list[dict[str, Any]]:
+        with self.conn() as c:
+            rows = c.execute("SELECT id, ai_error FROM items WHERE ai_state='error' ORDER BY id").fetchall()
+        return [{"id": r["id"], "error": r["ai_error"]} for r in rows]
+
     def claim_next_queued(self) -> dict[str, Any] | None:
         with self.conn() as c:
             row = c.execute(

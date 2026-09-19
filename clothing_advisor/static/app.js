@@ -5,7 +5,8 @@ window.api = function (path, opts) {
   return fetch(url, opts).then(async (r) => {
     let body = null;
     try { body = await r.json(); } catch (e) { /* not JSON */ }
-    if (!r.ok) throw new Error((body && body.detail) || "Request failed (" + r.status + ")");
+    if (r.status === 413) throw new Error("File too large for the server or proxy (HTTP 413)");
+    if (!r.ok) throw new Error((body && body.detail) || "Request failed (HTTP " + r.status + ")");
     return body;
   });
 };

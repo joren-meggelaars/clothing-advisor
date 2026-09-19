@@ -10,6 +10,7 @@
   <button id="upload" class="primary" disabled>Upload &amp; catalogue</button>
   <progress id="prog" value="0" max="1" hidden></progress>
   <p id="upmsg" class="small"></p>
+  <ul id="failures" class="small warnnote"></ul>
 </section>
 
 <section class="card">
@@ -22,6 +23,7 @@
 <section class="card">
   <h2>Queue</h2>
   <p id="queue" class="small">…</p>
+  <ul id="failed_items" class="small warnnote"></ul>
   <p class="small"><a href="{{ u('/app/review') }}">Review catalogued items &rarr;</a></p>
 </section>
 <script>window.PER_PHOTO = {{ per_photo }};</script>

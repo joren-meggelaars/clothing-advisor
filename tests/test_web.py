@@ -128,3 +128,13 @@ def test_all_pages_render(client):
         r = client.get(path, headers=h)
         assert r.status_code == 200, path
     assert re.search(r"Estimated cost per photo", client.get("/app/add", headers=h).text)
+
+
+def test_queue_reports_why_items_failed(client):
+    h = {"Authorization": f"Bearer {TOKEN}"}
+    item_id = client.ctx.db.add_item("shafail", "f.jpg", "f.jpg")
+    client.ctx.db.update_item(item_id, {"ai_state": "error", "ai_error": "Claude declined this request."})
+    q = client.get("/api/queue", headers=h).json()
+    assert q["error"] == 1 and q["failed_items"] == [{"id": item_id, "error": "Claude declined this request."}]
+    bad = client.post("/api/upload", files={"file": ("notes.txt", b"nope", "text/plain")}, headers=h)
+    assert bad.status_code == 400 and "readable image" in bad.json()["detail"]

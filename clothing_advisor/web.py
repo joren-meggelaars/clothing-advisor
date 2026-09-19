@@ -324,6 +324,7 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
         try:
             item_id, state = await asyncio.to_thread(catalog.ingest_bytes, cfg, ctx.db, raw)
         except imaging.ImageError as e:
+            log.warning("upload rejected (%s, %d bytes): %s", file.filename, len(raw), e)
             raise HTTPException(400, str(e))
         return {"item_id": item_id, "state": state}
 
@@ -339,7 +340,7 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
 
     @app.get("/api/queue")
     def api_queue():
-        return {**ctx.db.counts(), "paused": ctx.worker.paused_reason}
+        return {**ctx.db.counts(), "paused": ctx.worker.paused_reason, "failed_items": ctx.db.failed_items()}
 
     @app.get("/api/advice/current")
     def api_advice_current(request: Request):

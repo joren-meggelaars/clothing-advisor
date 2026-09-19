@@ -20,17 +20,21 @@
     if (!confirm(`Upload ${list.length} photos? Cataloguing costs about EUR ${est}.`)) return;
     $("upload").disabled = true;
     $("prog").hidden = false; $("prog").max = list.length; $("prog").value = 0;
-    let queued = 0, dup = 0, failed = 0;
+    let queued = 0, dup = 0;
+    const failures = [];
     for (const f of list) {
       const fd = new FormData();
       fd.append("file", f);
       try {
         const r = await api("/api/upload", { method: "POST", body: fd });
         if (r.state === "duplicate") dup++; else queued++;
-      } catch (e) { failed++; }
+      } catch (e) {
+        failures.push(`${f.name} (${Math.round(f.size / 1024)} KB): ${e.message}`);
+      }
       $("prog").value += 1;
-      $("upmsg").textContent = `${queued} queued, ${dup} duplicates, ${failed} failed`;
+      $("upmsg").textContent = `${queued} queued, ${dup} duplicates, ${failures.length} failed`;
     }
+    $("failures").innerHTML = failures.map((x) => `<li>${esc(x)}</li>`).join("");
     files.value = "";
     poll();
   });
@@ -50,6 +54,8 @@
       const q = await api("/api/queue");
       $("queue").textContent = `${q.queued} waiting · ${q.processing} in progress · ${q.error} failed · ${q.done_unreviewed} ready to review` +
         (q.paused ? ` — paused: ${q.paused}` : "");
+      $("failed_items").innerHTML = (q.failed_items || []).map((f) =>
+        `<li>#${f.id}: ${esc(f.error || "unknown error")}</li>`).join("");
     } catch (e) { /* ignore */ }
   }
   poll();
