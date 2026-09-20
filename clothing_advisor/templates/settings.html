@@ -17,6 +17,26 @@
 <form method="post" action="{{ u('/app/settings/test-weather') }}"><button>Test weather</button></form>
 
 <section class="card">
+  <h2>Morning suggestion</h2>
+  <p class="muted small">Prepares your outfit suggestions automatically so they are already on the tile when you look.
+    It is skipped when you already asked for advice or picked an outfit that day, and it retries a few times if something
+    goes wrong. Each run costs about EUR 0.04-0.06 (roughly EUR 1.50 a month).</p>
+  <form method="post" action="{{ u('/app/settings/auto') }}">
+    <label class="chk"><input type="checkbox" name="auto_on" value="1" {{ 'checked' if auto_on }}> Prepare a suggestion every morning</label>
+    <label>Time <input type="time" name="auto_time" value="{{ auto_time }}" required></label>
+    <label>What to ask
+      <input name="auto_request" maxlength="300" value="{{ auto_request }}" placeholder="Suggest my outfit for today."></label>
+    <div class="row">
+      <button class="primary">Save</button>
+    </div>
+  </form>
+  <p class="small muted">Today: {{ auto_status }}</p>
+  <form method="post" action="{{ u('/app/settings/auto-run') }}" onsubmit="return confirm('Prepare a suggestion now? This uses Claude (about EUR 0.05).')">
+    <button>Prepare one now</button>
+  </form>
+</section>
+
+<section class="card">
   <h2>Learned taste</h2>
   <p class="muted small">Built from your star ratings and notes, and used in every request. You can edit it. It is refreshed
     after every {{ distill_every }} new ratings ({{ taste.new }} new since the last update{{ ', next update in ' ~ taste.next_in if taste.next_in else ', due with the next rating' }}).

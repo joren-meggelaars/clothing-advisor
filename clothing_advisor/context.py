@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .auto import AutoAdvice
 from .catalog import CatalogWorker
 from .config import Config
 from .db import Database
@@ -26,6 +27,7 @@ class Ctx:
     stylist: Stylist
     worker: CatalogWorker
     taste: Taste
+    auto: AutoAdvice
 
 
 def build_ctx(cfg: Config, client: Any | None = None) -> Ctx:
@@ -37,5 +39,6 @@ def build_ctx(cfg: Config, client: Any | None = None) -> Ctx:
     tracker = CostTracker(cfg, db, notifier)
     llm = LlmClient(tracker, client)
     weather = Weather(cfg, db)
-    return Ctx(cfg, db, notifier, tracker, llm, weather, Stylist(cfg, db, llm, weather), CatalogWorker(cfg, db, llm),
-               Taste(cfg, db, llm))
+    stylist = Stylist(cfg, db, llm, weather)
+    return Ctx(cfg, db, notifier, tracker, llm, weather, stylist, CatalogWorker(cfg, db, llm),
+               Taste(cfg, db, llm), AutoAdvice(cfg, db, stylist, tracker))

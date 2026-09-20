@@ -1,5 +1,9 @@
-# Phone: the full app (chat, choose, add photos, wardrobe) inside the same dashboard.
+# Dashboard tile: today's outfit suggestions, prepared every morning, one tap to pick one ("tile view").
 # The token in the URL is your CA_ACCESS_TOKEN; the app remembers it in a cookie after the first load.
+# The tile scales to any size (portrait, landscape or small). For the full app (chat, photos, wardrobe,
+# settings) use the same URL with /app instead of /app/tile, or the "Open app" link inside the tile.
 type: iframe
-url: https://ca.example.nl/app?t=YOUR_CA_ACCESS_TOKEN
-aspect_ratio: 170%
+url: https://ca.example.nl/app/tile?t=YOUR_CA_ACCESS_TOKEN
+aspect_ratio: 125%
+grid_options:
+  columns: full

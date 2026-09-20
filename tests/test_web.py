@@ -199,3 +199,35 @@ def test_settings_page_taste_actions(client, fake):
     assert "No%20new%20ratings" in r.headers["location"] and fake.calls == []
     client.post("/app/settings/taste", data={"action": "reset"}, headers=h, follow_redirects=False)
     assert client.ctx.taste.profile() == ""
+
+
+# ------------------------------------------------------------------ tile view and morning suggestion in the web app
+def test_tile_page_and_state_for_the_tile(client, fake):
+    h, oid = _proposed_outfit(client, fake)
+    page = client.get("/app/tile", headers=h)
+    assert page.status_code == 200 and "tile.js" in page.text
+    state = client.get("/api/advice/current", headers=h).json()
+    assert state["prepared_at"] and state["auto"] is True and "weather_short" in state
+    assert state["outfits"][0]["image_square"].startswith("/img/collages/s")
+    assert client.get(state["outfits"][0]["image_square"], headers=h).status_code == 200
+
+
+def test_asking_yourself_marks_the_day_so_the_morning_job_skips(client, fake):
+    _proposed_outfit(client, fake)
+    from clothing_advisor import stylist as st
+    assert client.ctx.db.get_setting("last_user_advice") == st.today_date(client.ctx.cfg).isoformat()
+
+
+def test_settings_for_the_morning_suggestion(client, fake):
+    h = {"Authorization": f"Bearer {TOKEN}"}
+    assert "Morning suggestion" in client.get("/app/settings", headers=h).text
+    assert client.post("/app/settings/auto", data={"auto_time": "25:99"}, headers=h).status_code == 400
+    r = client.post("/app/settings/auto", headers=h, follow_redirects=False,
+                    data={"auto_on": "1", "auto_time": "07:05", "auto_request": " smart casual please "})
+    assert r.status_code == 303
+    auto = client.ctx.auto
+    assert auto.enabled() and auto.at().strftime("%H:%M") == "07:05" and auto.request() == "smart casual please"
+    client.post("/app/settings/auto", data={"auto_time": "06:30"}, headers=h, follow_redirects=False)   # box unticked
+    assert not auto.enabled()
+    r = client.post("/app/settings/auto-run", headers=h, follow_redirects=False)
+    assert r.status_code == 303 and "not possible" in auto.status()          # empty wardrobe: reported, no crash

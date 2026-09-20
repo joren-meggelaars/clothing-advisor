@@ -32,6 +32,12 @@ TV kiosk ── REST sensor ─┼─ NPM (https) ──► clothing-advisor ─
    advice request, outfits rated 2 stars or lower are never proposed again for 90 days, and after every 10 new ratings
    Claude refreshes a short *learned taste* profile (visible and editable under Settings, about EUR 0.01-0.02 per update).
 
+6. **Morning suggestion**: every morning at a time you set (default 06:30) the app prepares 3 outfits by itself, so the
+   tile already shows them. It is skipped when you asked for advice or picked an outfit that day, retries when something
+   goes wrong, and costs roughly EUR 1.50 a month (Settings -> Morning suggestion).
+7. **Tile view** (`/app/tile`): a compact, self-scaling view for the Home Assistant iframe card. Swipe through the
+   suggestions, tap *Wear this*, later *I wore it* and a star rating; *Another* asks for different options.
+
 ## Cost control
 
 Every Claude call is logged with tokens and an EUR estimate (Costs page). `MONTHLY_BUDGET_EUR` (default 10) has

@@ -202,12 +202,20 @@ def outfit_count(cfg: Config, db: Database) -> int:
     return int(raw) if raw.isdigit() and 1 <= int(raw) <= 6 else cfg.outfit_count
 
 
+def session_created_today(s: dict[str, Any], cfg: Config) -> bool:
+    return datetime.fromisoformat(s["created_at"]).astimezone(cfg.tz).date() == today_date(cfg)
+
+
 def current_session(db: Database, cfg: Config) -> dict[str, Any] | None:
+    """The conversation the app and the TV show: active in the last 12 hours, or started today (so the
+    morning suggestions stay visible all day)."""
     s = db.latest_session()
     if not s:
         return None
     updated = datetime.fromisoformat(s["updated_at"])
-    return s if datetime.now(updated.tzinfo) - updated < SESSION_MAX_AGE else None
+    if datetime.now(updated.tzinfo) - updated < SESSION_MAX_AGE:
+        return s
+    return s if session_created_today(s, cfg) else None
 
 
 class Stylist:
@@ -241,7 +249,6 @@ class Stylist:
             if not any(i["category"] == cat for i in allowed.values()):
                 raise ValueError(f"No clean {label} are available right now: they are in the wash "
                                  "or you excluded them earlier in this chat (a new request resets that).")
-        session_id = session["id"] if session else db.new_session()
         blocked, repeatable = blocked_outfits(db, cfg, today)
         disliked = [d for d in disliked_sets(db) if d not in blocked]
         blocked = blocked + disliked
@@ -277,7 +284,7 @@ class Stylist:
         if repeatable:
             volatile.append("Yesterday's outfit may be worn a second day in a row: "
                             f"{[sorted(s) for s in repeatable]}")
-        history = db.get_messages(session_id)[-2 * HISTORY_TURNS:]
+        history = db.get_messages(session["id"])[-2 * HISTORY_TURNS:] if session else []
         messages = [{"role": m["role"], "content": m["content"]} for m in history]
         messages.append({"role": "user", "content": "\n".join(volatile)})
 
@@ -292,6 +299,7 @@ class Stylist:
             advice = self._call(system, messages)
             good, problems = self._split(advice, allowed, blocked)
 
+        session_id = session["id"] if session else db.new_session()   # only now: a failed call must not leave an empty session
         excluded |= {i for i in advice.exclude_item_ids if i in {x["id"] for x in all_items}}
         db.set_session_excluded(session_id, list(excluded))
         db.replace_proposals(session_id)

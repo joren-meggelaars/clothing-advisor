@@ -5,6 +5,7 @@ import asyncio
 import hmac
 import json
 import logging
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +25,7 @@ from .llm import LlmError
 from .schema import CATEGORIES, LAYERS, PATTERNS, SEASONS
 from .taste import DISTILL_EVERY, RATING_REASONS
 from .usage import BudgetExceeded
+from .weather import Weather
 
 log = logging.getLogger("clothing_advisor")
 BASE = Path(__file__).parent
@@ -42,12 +44,24 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
     ctx: Ctx = build_ctx(cfg, client)
     https = cfg.public_base_url.startswith("https")
 
+    async def auto_loop() -> None:
+        while True:
+            try:
+                await asyncio.to_thread(ctx.auto.run_if_due)
+            except Exception:  # keep the loop alive whatever happens
+                log.exception("morning suggestion loop error")
+            await asyncio.sleep(60)
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        auto_task = None
         if start_worker:
             ctx.worker.start()
+            auto_task = asyncio.create_task(auto_loop())
         yield
         if start_worker:
+            auto_task.cancel()
+            await asyncio.gather(auto_task, return_exceptions=True)
             await ctx.worker.stop()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
@@ -129,6 +143,8 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
         view = {"id": o["id"], "name": o["name"], "reason": o["reason"], "status": o["status"], "image": image,
                 "items_text": " · ".join(f"{' '.join(i['colors'][:1])} {i['subtype']}".strip() for i in items)}
         if not tv:
+            imaging.make_collage(cfg, o["id"], [i["photo"] for i in items], square=True)
+            view["image_square"] = url(request, f"/img/collages/s{o['id']}.jpg")
             view["rating"] = rating_of(o)
             view["items"] = [{"id": i["id"], "subtype": i["subtype"], "thumb": url(request, f"/img/thumbs/{i['thumb']}")}
                              for i in items]
@@ -149,8 +165,12 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
                        ctx.db.list_outfits(session_id=session["id"], statuses=("proposed", "chosen"))]
             last = [m for m in ctx.db.get_messages(session["id"]) if m["role"] == "assistant"]
             reply = json.loads(last[-1]["content"]).get("reply", "") if last else ""
+        prepared = ""
+        if session:
+            prepared = datetime.fromisoformat(session["created_at"]).astimezone(cfg.tz).strftime("%H:%M")
         return {"session_id": session["id"] if session else None, "reply": reply, "outfits": outfits,
-                "today": today_outfit(request)}
+                "today": today_outfit(request), "weather_short": Weather.short(ctx.weather.get()),
+                "prepared_at": prepared, "auto": ctx.auto.enabled()}
 
     # ------------------------------------------------------------------ health, images
     @app.get("/healthz")
@@ -177,6 +197,12 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
         ready, not_ready_reason = stylist.wardrobe_readiness(ctx.db)
         return render(request, "advice.html", active="/app", ready=ready, not_ready_reason=not_ready_reason,
                       weather_on=bool(ctx.weather.entity()), n=stylist.outfit_count(cfg, ctx.db))
+
+    @app.get("/app/tile")
+    def page_tile(request: Request):
+        """Compact, self-scaling view for the Home Assistant tile (no menu, advice is already prepared)."""
+        return render(request, "tile.html", auto_on=ctx.auto.enabled(), auto_time=ctx.auto.at().strftime("%H:%M"),
+                      auto_request=ctx.auto.request())
 
     @app.get("/app/wardrobe")
     def page_wardrobe(request: Request, category: str = "", status: str = ""):
@@ -311,7 +337,9 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
                       weather_entity=ctx.weather.entity(), notify_service=ctx.notifier.ha_service(),
                       outfit_n=stylist.outfit_count(cfg, ctx.db), ha_ok=bool(cfg.ha_url and cfg.ha_token),
                       channels=ctx.notifier.channels(), taste_profile=ctx.taste.profile(),
-                      taste=ctx.taste.status(), distill_every=DISTILL_EVERY)
+                      taste=ctx.taste.status(), distill_every=DISTILL_EVERY, auto_on=ctx.auto.enabled(),
+                      auto_time=ctx.auto.at().strftime("%H:%M"), auto_request=ctx.auto.request(),
+                      auto_status=ctx.auto.status())
 
     @app.post("/app/settings")
     def settings_save(request: Request, profile: str = Form(""), weather_entity: str = Form(""),
@@ -321,6 +349,21 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
         ctx.db.set_setting("notify_service", notify_service.strip())
         ctx.db.set_setting("outfit_count", str(min(max(outfit_n, 1), 6)))
         return redirect(request, "/app/settings", "Settings saved")
+
+    @app.post("/app/settings/auto")
+    def settings_auto(request: Request, auto_on: str = Form(""), auto_time: str = Form("06:30"),
+                      auto_request: str = Form("")):
+        if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", auto_time):
+            raise HTTPException(400, "Time must look like 06:30")
+        ctx.db.set_setting("auto_advice", "1" if auto_on else "0")
+        ctx.db.set_setting("auto_advice_time", auto_time)
+        ctx.db.set_setting("auto_advice_request", auto_request.strip()[:300])
+        return redirect(request, "/app/settings", "Morning suggestion saved")
+
+    @app.post("/app/settings/auto-run")
+    def settings_auto_run(request: Request):
+        ctx.auto.run_now()
+        return redirect(request, "/app/settings", f"Morning suggestion: {ctx.auto.status()}")
 
     @app.post("/app/settings/taste")
     def settings_taste(request: Request, taste_profile: str = Form(""), action: str = Form("save")):
@@ -384,6 +427,7 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
             raise HTTPException(402, str(e))
         except LlmError as e:
             raise HTTPException(502, str(e))
+        ctx.db.set_setting("last_user_advice", today())
         return advice_state(request)
 
     def _outfit_or_404(outfit_id: int) -> dict[str, Any]:

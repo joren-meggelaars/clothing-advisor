@@ -84,6 +84,24 @@ class Weather:
         out["text"] = self._describe(out)
         return out
 
+    ICONS = {"sunny": "☀️", "clear-night": "🌙", "partlycloudy": "⛅", "cloudy": "☁️", "rainy": "🌧️", "pouring": "🌧️",
+             "snowy": "❄️", "snowy-rainy": "🌨️", "hail": "🌨️", "fog": "🌫️", "windy": "💨", "windy-variant": "💨",
+             "lightning": "⛈️", "lightning-rainy": "⛈️", "exceptional": "⚠️"}
+
+    @classmethod
+    def short(cls, w: dict[str, Any] | None) -> str:
+        """Compact line for small screens, e.g. '⛅ 14° · 9-18° · 40% rain'."""
+        if not w:
+            return ""
+        parts = []
+        if w.get("t_now") is not None:
+            parts.append(f"{cls.ICONS.get(w.get('condition', ''), '')} {w['t_now']:.0f}°".strip())
+        if w.get("t_low") is not None and w.get("t_high") is not None:
+            parts.append(f"{w['t_low']:.0f}-{w['t_high']:.0f}°")
+        if w.get("rain_prob") is not None and w["rain_prob"] >= 20:
+            parts.append(f"{w['rain_prob']}% rain")
+        return " · ".join(parts)
+
     @staticmethod
     def _describe(w: dict[str, Any]) -> str:
         parts = []

@@ -55,13 +55,14 @@ def process_upload(cfg: Config, raw: bytes) -> dict[str, str]:
     return {"sha": sha, "photo": name, "thumb": name}
 
 
-def make_collage(cfg: Config, outfit_id: int, thumbs: list[str]) -> Path:
-    """Compose the item thumbnails of one outfit into a single JPEG (cached on disk)."""
-    path = cfg.collages_dir / f"o{outfit_id}.jpg"
+def make_collage(cfg: Config, outfit_id: int, thumbs: list[str], square: bool = False) -> Path:
+    """Compose the item thumbnails of one outfit into a single JPEG (cached on disk).
+    The default is a wide strip (TV); square=True gives a near-square grid that fills a small tile better."""
+    path = cfg.collages_dir / f"{'s' if square else 'o'}{outfit_id}.jpg"
     if path.exists():
         return path
     n = max(len(thumbs), 1)
-    cols = n if n <= 3 else 3
+    cols = (1 if n == 1 else 2 if n <= 4 else 3) if square else (n if n <= 3 else 3)
     rows = -(-n // cols)
     canvas = Image.new("RGB", (cols * TILE + (cols + 1) * PAD, rows * TILE + (rows + 1) * PAD), BG)
     for i, name in enumerate(thumbs):
@@ -71,7 +72,9 @@ def make_collage(cfg: Config, outfit_id: int, thumbs: list[str]) -> Path:
             continue
         tile.thumbnail((TILE, TILE))
         r, c = divmod(i, cols)
-        x = PAD + c * (TILE + PAD) + (TILE - tile.width) // 2
+        in_row = min(cols, n - r * cols)                       # the last row may be shorter: centre it
+        x0 = (cols - in_row) * (TILE + PAD) // 2
+        x = PAD + x0 + c * (TILE + PAD) + (TILE - tile.width) // 2
         y = PAD + r * (TILE + PAD) + (TILE - tile.height) // 2
         canvas.paste(tile, (x, y))
     canvas.save(path, "JPEG", quality=80, optimize=True)

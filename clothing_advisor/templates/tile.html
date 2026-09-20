@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Outfit</title>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/tile.css">
+<script>window.CA = {t: {{ token|tojson }}, autoOn: {{ auto_on|tojson }}, autoTime: {{ auto_time|tojson }}, request: {{ auto_request|tojson }}, full: {{ u('/app')|tojson }}};</script>
+<script src="/static/app.js" defer></script>
+<script src="/static/tile.js" defer></script>
+</head>
+<body class="tilepage">
+<div id="root"><p class="msg">Loading…</p></div>
+</body>
+</html>
