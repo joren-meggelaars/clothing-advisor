@@ -1,6 +1,7 @@
 # Add to Home Assistant's configuration.yaml (or a package), then restart / reload.
 # secrets.yaml:
-#   clothing_advisor_url: "https://ca.example.nl/api/tv"
+#   clothing_advisor_url: "http://<VM-IP>:8080/api/tv"   # direct to the VM: HA -> app never passes the proxy,
+#                                                        # so the proxy can stay home-only
 #   clothing_advisor_bearer: "Bearer <CA_ACCESS_TOKEN>"
 rest:
   - resource: !secret clothing_advisor_url
