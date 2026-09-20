@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block head %}<script src="/static/advice.js" defer></script>{% endblock %}
+{% block head %}<script src="{{ asset('advice.js') }}" defer></script>{% endblock %}
 {% block content %}
 {% if not ready %}
 <div class="banner warn">{{ not_ready_reason }}

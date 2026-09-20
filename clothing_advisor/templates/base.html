@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Clothing Advisor</title>
-<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="{{ asset('app.css') }}">
 <script>window.CA = {t: {{ token|tojson }}};</script>
-<script src="/static/app.js" defer></script>
+<script src="{{ asset('app.js') }}" defer></script>
 {% block head %}{% endblock %}
 </head>
 <body>

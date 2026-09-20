@@ -4,11 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Outfit</title>
-<link rel="stylesheet" href="/static/app.css">
-<link rel="stylesheet" href="/static/tile.css">
+<link rel="stylesheet" href="{{ asset('app.css') }}">
+<link rel="stylesheet" href="{{ asset('tile.css') }}">
 <script>window.CA = {t: {{ token|tojson }}, k: {{ tile_key|tojson }}, v: {{ view_key|tojson }}, readonly: {{ readonly|tojson }}, autoOn: {{ auto_on|tojson }}, autoTime: {{ auto_time|tojson }}, request: {{ auto_request|tojson }}, full: {{ full_url|tojson }}};</script>
-<script src="/static/app.js" defer></script>
-<script src="/static/tile.js" defer></script>
+<script src="{{ asset('app.js') }}" defer></script>
+<script src="{{ asset('tile.js') }}" defer></script>
 </head>
 <body class="tilepage">
 <div id="root"><p class="msg">Loading…</p></div>

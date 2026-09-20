@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block head %}<script src="/static/add.js" defer></script>{% endblock %}
+{% block head %}<script src="{{ asset('add.js') }}" defer></script>{% endblock %}
 {% block content %}
 <h1>Add photos</h1>
 <p class="muted">One garment per photo, on a plain background, works best. Each photo is catalogued by Claude in the background.</p>

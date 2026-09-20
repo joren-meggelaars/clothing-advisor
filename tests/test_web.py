@@ -362,3 +362,15 @@ def test_tokens_must_all_differ(env, monkeypatch):
     monkeypatch.setenv("CA_VIEW_TOKEN", "short")
     with pytest.raises(RuntimeError):
         Config.from_env()
+
+
+# ------------------------------------------------------------------ static files must never be served stale after an update
+def test_static_assets_are_versioned_and_revalidated(client):
+    h = {"Authorization": f"Bearer {TOKEN}"}
+    page = client.get("/app/tile", headers=h).text
+    versions = set(re.findall(r"/static/(?:app|tile)\.(?:js|css)\?v=([0-9a-f]{10})", page))
+    assert len(versions) == 1                                             # every asset carries the same content stamp
+    assert re.search(r'src="/static/app\.js\?v=', page) and re.search(r'href="/static/tile\.css\?v=', page)
+    r = client.get(f"/static/app.js?v={versions.pop()}")                  # public, no token needed
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-cache"
+    assert "window.api" in r.text

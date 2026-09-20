@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import hmac
 import json
 import logging
@@ -92,6 +93,13 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
     app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
     templates = Jinja2Templates(directory=str(BASE / "templates"))
     templates.env.globals.update(CATEGORIES=CATEGORIES, PATTERNS=PATTERNS, SEASONS=SEASONS, LAYERS=LAYERS)
+    # Version stamp of the static files: changes whenever one of them changes, so browsers (and the Home Assistant app)
+    # fetch the new script instead of reusing an old cached copy.
+    digest = hashlib.sha1()
+    for f in sorted((BASE / "static").glob("*")):
+        digest.update(f.name.encode() + f.read_bytes())
+    asset_version = digest.hexdigest()[:10]
+    templates.env.globals["asset"] = lambda name: f"/static/{name}?v={asset_version}"
 
     # ------------------------------------------------------------------ auth & helpers
     def auth_source(request: Request) -> str | None:
@@ -156,6 +164,8 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
         if source == "query" and response.status_code < 400:
             response.set_cookie("ca_auth", cfg.access_token, max_age=365 * 86400, httponly=True,
                                 secure=https, samesite="none" if https else "lax")
+        if path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"      # always revalidate (cheap: ETag)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         if cfg.ha_origin:

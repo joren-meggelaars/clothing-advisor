@@ -186,7 +186,12 @@
     lastSig = signature(s);
     view = s.today ? "today" : "suggestions";
     render();
-  }).catch((e) => { root.innerHTML = `<p class="msg">${esc(e.message)}</p>`; });
+  }).catch((e) => {
+    const denied = /unauthori|not allowed|403|401/i.test(e.message);
+    root.innerHTML = `<p class="msg">${denied
+      ? "Not signed in. The tile URL needs ?k=… or ?v=… with your tile token. Just updated? Reload the page (Ctrl+F5)."
+      : esc(e.message)}</p>`;
+  });
 
   setInterval(refresh, 60 * 1000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
