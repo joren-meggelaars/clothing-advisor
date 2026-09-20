@@ -296,3 +296,69 @@ def test_tile_token_must_be_long_and_different(env, monkeypatch):
         monkeypatch.setenv("CA_TILE_TOKEN", bad)
         with pytest.raises(RuntimeError):
             Config.from_env()
+
+
+# ------------------------------------------------------------------ view token: read-only (tv, HA sensor)
+VIEW = "view-token-0123456789abcdefgh"
+
+
+@pytest.fixture
+def view_client(env, fake, monkeypatch):
+    from datetime import date
+    from clothing_advisor.config import Config
+    monkeypatch.setenv("CA_TILE_TOKEN", TILE)
+    monkeypatch.setenv("CA_VIEW_TOKEN", VIEW)
+    monkeypatch.setattr(stylist, "today_date", lambda cfg: date(2026, 7, 15))
+    app = create_app(Config.from_env(), fake, start_worker=False)
+    with TestClient(app, base_url="http://testserver") as c:
+        c.ctx = app.state.ctx
+        yield c
+
+
+def test_view_token_can_only_read(view_client, fake):
+    c = view_client
+    full = {"Authorization": f"Bearer {TOKEN}"}
+    w = _wardrobe(c.ctx)
+    fake.queue({"reply": "ok", "outfits": [
+        {"name": "Tee & chinos", "item_ids": [w["top"], w["bottom"], w["footwear"]], "rationale": "easy"}],
+        "exclude_item_ids": []})
+    oid = c.post("/api/advice", json={"message": "casual", "new_session": True}, headers=full).json()["outfits"][0]["id"]
+    v, bearer = f"v={VIEW}", {"Authorization": f"Bearer {VIEW}"}
+
+    page = c.get(f"/app/tile?{v}")
+    assert page.status_code == 200 and "readonly: true" in page.text
+    assert TOKEN not in page.text and TILE not in page.text
+    cur = c.get(f"/api/advice/current?{v}").json()
+    assert cur["outfits"] and v in cur["outfits"][0]["image_square"]
+    assert c.get(cur["outfits"][0]["image_square"]).status_code == 200
+    tv = c.get("/api/tv", headers=bearer)                                     # the HA sensor can use it as a Bearer token
+    assert tv.status_code == 200 and tv.json()["outfits"]
+
+    calls_before = len(fake.calls)
+    writes = [("post", f"/api/outfits/{oid}/choose"), ("post", f"/api/outfits/{oid}/worn"),
+              ("post", f"/api/outfits/{oid}/rate"), ("post", f"/api/outfits/{oid}/reject"), ("post", "/api/advice"),
+              ("post", "/api/upload"), ("post", "/app/settings/auto-run"), ("post", "/app/costs/budget")]
+    reads = [("get", "/app"), ("get", "/app/wardrobe"), ("get", "/app/settings"), ("get", "/app/costs"),
+             ("get", "/api/queue"), ("get", "/api/estimate?n=1"), ("get", "/img/photos/p1.jpg")]
+    for method, path in writes + reads:
+        for how in ({"params": {"v": VIEW}}, {"headers": bearer}):
+            r = getattr(c, method)(path, **how)
+            assert r.status_code == 403, (method, path, how, r.status_code)
+    assert len(fake.calls) == calls_before                                    # nothing reached Claude
+    assert c.ctx.db.get_outfit(oid)["status"] == "proposed"                   # nothing changed
+    assert c.ctx.db.ratings_for_outfit(oid) == []
+
+    c.cookies.clear()                                                          # the other tokens are not read-only
+    assert "readonly: false" in c.get(f"/app/tile?k={TILE}").text
+    assert "readonly: false" in c.get(f"/app/tile?t={TOKEN}").text
+
+
+def test_tokens_must_all_differ(env, monkeypatch):
+    from clothing_advisor.config import Config
+    monkeypatch.setenv("CA_TILE_TOKEN", TILE)
+    monkeypatch.setenv("CA_VIEW_TOKEN", TILE)
+    with pytest.raises(RuntimeError):
+        Config.from_env()
+    monkeypatch.setenv("CA_VIEW_TOKEN", "short")
+    with pytest.raises(RuntimeError):
+        Config.from_env()

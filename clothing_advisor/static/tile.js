@@ -11,6 +11,7 @@
   const FORCE = PARAMS.get("mode") || "auto";
   const INTERVAL = Math.max(2, Number(PARAMS.get("interval")) || 5) * 1000;
   const PAUSE_AFTER_TOUCH = 20 * 1000;
+  const READONLY = !!CFG.readonly;   // view token (e.g. the tv): show only, no buttons, nothing to click
   const post = (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
 
   let state = null;         // response of /api/advice/current
@@ -44,10 +45,10 @@
       `<div class="gcard ${o.status === "chosen" ? "picked" : ""}">
          <img class="collage" src="${esc(o.image_square || o.image)}" alt="${esc(o.name)}">
          <div class="gname">${i + 1} · ${esc(o.name)}</div>
-         <button class="primary" data-act="wear" data-i="${i}">✓ Wear this</button></div>`).join("");
+         ${READONLY ? "" : `<button class="primary" data-act="wear" data-i="${i}">✓ Wear this</button>`}</div>`).join("");
     const info = `<div class="ginfo"><ol>${list.map((o, i) =>
       `<li><b>${i + 1} · ${esc(o.name)}</b><span>${esc(o.reason || o.items_text || "")}</span></li>`).join("")}</ol>
-      <button data-act="another">↻ Another</button></div>`;
+      ${READONLY ? "" : `<button data-act="another">↻ Another</button>`}</div>`;
     return `<div class="gridwrap" style="grid-template-columns: repeat(${list.length}, minmax(0, 1fr)) minmax(0, 1.3fr)">${cards}${info}</div>`;
   }
 
@@ -61,7 +62,7 @@
   function frame(inner) {
     const wx = [state && state.weather_short, state && state.prepared_at ? "ready " + state.prepared_at : ""].filter(Boolean).join(" · ");
     return `<div class="frame">
-      <div class="topline"><span class="wx">${esc(wx)}</span><a class="more" href="${esc(CFG.full || "/app")}" target="_blank" rel="noopener">Open app ↗</a></div>
+      <div class="topline"><span class="wx">${esc(wx)}</span>${READONLY ? "" : `<a class="more" href="${esc(CFG.full || "/app")}" target="_blank" rel="noopener">Open app ↗</a>`}</div>
       ${inner}
       ${error ? `<div class="err">${esc(error)}</div>` : ""}
       ${busy ? `<div class="busy">${esc(busy)}</div>` : ""}</div>`;
@@ -72,19 +73,20 @@
     const today = state.today;
     const list = state.outfits;
     document.body.classList.remove("gridmode");
+    document.body.classList.toggle("readonly", READONLY);
 
     if (view === "today" && today) {
       const worn = today.status === "worn";
       root.innerHTML = frame(
         `<div class="stage"><div class="slides">${slide(today, worn ? "Today · worn" : "Today's outfit")}</div></div>` +
-        `<footer class="actions">` + (worn ? stars(today)
-          : `<button class="primary" data-act="wore">I wore it</button><button data-act="change">Change</button>`) + `</footer>`);
+        (READONLY ? "" : `<footer class="actions">` + (worn ? stars(today)
+          : `<button class="primary" data-act="wore">I wore it</button><button data-act="change">Change</button>`) + `</footer>`));
       return;
     }
     if (!list.length) {
       root.innerHTML = frame(
         `<div class="center"><div>${CFG.autoOn ? "Your outfit is prepared every morning at " + esc(CFG.autoTime) + "." : "No suggestions yet."}</div>` +
-        `<button class="primary" data-act="suggest">Suggest now</button></div>`);
+        (READONLY ? "" : `<button class="primary" data-act="suggest">Suggest now</button>`) + `</div>`);
       return;
     }
     if (useGrid(list.length)) {
@@ -97,7 +99,7 @@
     root.innerHTML = frame(
       `<div class="stage"><div class="slides" id="slides">${list.map((o) => slide(o, o.status === "chosen" ? "Your pick" : "")).join("")}</div>` +
       (list.length > 1 ? `<div class="dots" id="dots">${list.map((_, i) => `<i class="${i === index ? "on" : ""}"></i>`).join("")}</div>` : "") + `</div>` +
-      `<footer class="actions"><button class="primary" data-act="wear">✓ Wear this</button><button data-act="another">↻ Another</button></footer>`);
+      (READONLY ? "" : `<footer class="actions"><button class="primary" data-act="wear">✓ Wear this</button><button data-act="another">↻ Another</button></footer>`));
 
     const slides = document.getElementById("slides");
     slides.scrollLeft = index * slides.clientWidth;
@@ -120,7 +122,7 @@
 
   root.addEventListener("click", (e) => {
     const b = e.target.closest("button");
-    if (!b || busy || !b.dataset.act) return;
+    if (READONLY || !b || busy || !b.dataset.act) return;
     pausedUntil = Date.now() + PAUSE_AFTER_TOUCH;
     const act = b.dataset.act;
     if (act === "wear") {

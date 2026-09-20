@@ -1,0 +1,11 @@
+# TV kiosk, read-only: the same tile as the phone, but with the VIEW token (CA_VIEW_TOKEN, ?v=...).
+# The server refuses everything except reading with that token, and the tile shows no buttons or links,
+# so nothing can be changed from the tv. Text is larger for viewing from a distance.
+# Wide enough: three suggestions side by side with a box of descriptions; otherwise a slideshow (5 seconds).
+# (Alternative without an iframe: ha/tv-card.yaml, the markdown card fed by the REST sensor.)
+type: iframe
+url: https://ca.example.nl/app/tile?v=YOUR_CA_VIEW_TOKEN
+aspect_ratio: 100%
+grid_options:
+  columns: full
+  rows: 7

@@ -41,8 +41,17 @@ TILE_ROUTES = (
 )
 
 
-def tile_allows(method: str, path: str) -> bool:
-    return any(m == method and rx.match(path) for m, rx in TILE_ROUTES)
+# The view token is read-only: it shows the suggestions and cannot change anything. It also feeds the Home Assistant sensor.
+VIEW_ROUTES = (
+    ("GET", re.compile(r"^/app/tile$")),
+    ("GET", re.compile(r"^/api/advice/current$")),
+    ("GET", re.compile(r"^/api/tv$")),
+    ("GET", re.compile(r"^/img/(collages|thumbs)/[A-Za-z0-9_.-]+$")),
+)
+
+
+def route_allowed(routes, method: str, path: str) -> bool:
+    return any(m == method and rx.match(path) for m, rx in routes)
 
 
 NAV = (("Advice", "/app"), ("Wardrobe", "/app/wardrobe"), ("Add", "/app/add"), ("Review", "/app/review"),
@@ -104,22 +113,39 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
             return f"{path}{sep}t={quote(cfg.access_token)}"
         if getattr(request.state, "via_tile", False):
             return f"{path}{sep}k={quote(cfg.tile_token)}"
+        if getattr(request.state, "via_view", False):
+            return f"{path}{sep}v={quote(cfg.view_token)}"
         return path
+
+    def scoped_token(request: Request):
+        """Which scope-limited token (if any) the request carries: (name, allowed routes)."""
+        header = request.headers.get("authorization", "")
+        bearer = header[7:].strip() if header.lower().startswith("bearer ") else ""
+        for name, token, routes, param in (("tile", cfg.tile_token, TILE_ROUTES, "k"), ("view", cfg.view_token, VIEW_ROUTES, "v")):
+            if not token:
+                continue
+            given = [request.query_params.get(param) or ""]
+            if name == "view":
+                given.append(bearer)          # the HA sensor sends it as a Bearer header
+            if any(g and _eq(g, token) for g in given):
+                return name, routes
+        return None
 
     @app.middleware("http")
     async def guard(request: Request, call_next):
         source = auth_source(request)
         path = request.url.path
-        request.state.via_tile = False
-        if source is None and cfg.tile_token:
-            k = request.query_params.get("k")
-            if k and _eq(k, cfg.tile_token):
-                if not tile_allows(request.method, path):
+        request.state.via_tile = request.state.via_view = False
+        if source is None:
+            scope = scoped_token(request)
+            if scope:
+                name, routes = scope
+                if not route_allowed(routes, request.method, path):
                     if path.startswith("/api/"):
-                        return JSONResponse({"detail": "This link only opens the tile"}, status_code=403)
+                        return JSONResponse({"detail": "This token is not allowed to do that"}, status_code=403)
                     return templates.TemplateResponse(request, "unauthorized.html", {}, status_code=403)
-                source = "tile"
-                request.state.via_tile = True
+                source = name
+                request.state.via_tile, request.state.via_view = name == "tile", name == "view"
         request.state.authed = source is not None
         request.state.via_query = source == "query"
         if source is None and not path.startswith(PUBLIC_PREFIXES):
@@ -139,7 +165,8 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
     def render(request: Request, name: str, status_code: int = 200, **kw: Any):
         kw.update(u=lambda p: url(request, p), token=cfg.access_token if request.state.via_query else "",
                   tile_key=cfg.tile_token if request.state.via_tile else "",
-                  full_url="/app" if request.state.via_tile else url(request, "/app"), nav=NAV, cost=ctx.tracker.summary(), msg=request.query_params.get("msg", ""))
+                  view_key=cfg.view_token if request.state.via_view else "", readonly=request.state.via_view,
+                  full_url="/app" if (request.state.via_tile or request.state.via_view) else url(request, "/app"), nav=NAV, cost=ctx.tracker.summary(), msg=request.query_params.get("msg", ""))
         return templates.TemplateResponse(request, name, kw, status_code=status_code)
 
     def redirect(request: Request, path: str, msg: str = "") -> RedirectResponse:

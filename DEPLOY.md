@@ -55,8 +55,9 @@ The Home Assistant sensor does not go through the proxy at all (see step 3.4).
 4. Add [ha/configuration.yaml](ha/configuration.yaml) (REST sensor + recorder exclude) and the secrets it mentions.
    Point the sensor at the VM directly (`http://<VM-IP>:8080/api/tv`): server to server, no https and no proxy
    rules involved. Only the browsers (phone iframe, tv images) use the https name.
-5. Generate a tile token (`openssl rand -hex 24`), put it in `.env` as `CA_TILE_TOKEN` and recreate the container. Use it
-   (`?k=...`) in the tile URL instead of the full access token.
+5. Generate two more tokens (`openssl rand -hex 24`, twice) and put them in `.env` as `CA_TILE_TOKEN` (phone tile, `?k=...`) and
+   `CA_VIEW_TOKEN` (tv, read only, `?v=...`; also usable as the sensor's Bearer token). All three tokens must differ. Recreate
+   the container and use them in the tile URLs instead of the full access token.
 6. Add the cards: [ha/phone-card.yaml](ha/phone-card.yaml) (the compact tile view, `/app/tile`) on the phone view, [ha/tv-card.yaml](ha/tv-card.yaml) in the TV
    kiosk's sections view.
 

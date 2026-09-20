@@ -42,10 +42,15 @@ TV kiosk ── REST sensor ─┼─ NPM (https) ──► clothing-advisor ─
 
 ## Access
 
-`CA_ACCESS_TOKEN` opens everything (phone, admin pages, the Home Assistant sensor). For the dashboard tile use the separate
-`CA_TILE_TOKEN` (`/app/tile?k=...`): it works inside an iframe without cookies and it can only show the suggestions, pick
-one, rate it and ask for new ones. It cannot upload or delete photos, change settings or see the wardrobe and the costs.
-If it ever leaks, change it in `.env` and in the tile URL; nothing else is affected.
+Three tokens, from most to least powerful (all optional except the first, all must differ):
+
+| Token | Used for | Can do |
+|---|---|---|
+| `CA_ACCESS_TOKEN` | you, in a browser | everything |
+| `CA_TILE_TOKEN` (`/app/tile?k=...`) | the phone tile | show, pick, rate suggestions, ask for new ones; no photos, wardrobe, settings or costs |
+| `CA_VIEW_TOKEN` (`/app/tile?v=...` or `Authorization: Bearer`) | the tv and the HA sensor | **read only**: the server refuses every change and the tile shows no buttons |
+
+The tile tokens work inside an iframe without cookies. If one leaks, change it in `.env` and in the tile URL; nothing else is affected.
 
 ## Cost control
 

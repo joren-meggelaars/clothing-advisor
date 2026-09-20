@@ -2,7 +2,7 @@
 # secrets.yaml:
 #   clothing_advisor_url: "http://<VM-IP>:8080/api/tv"   # direct to the VM: HA -> app never passes the proxy,
 #                                                        # so the proxy can stay home-only
-#   clothing_advisor_bearer: "Bearer <CA_ACCESS_TOKEN>"
+#   clothing_advisor_bearer: "Bearer <CA_VIEW_TOKEN>"     # the read-only token is enough here: the master token stays out of HA
 rest:
   - resource: !secret clothing_advisor_url
     headers:

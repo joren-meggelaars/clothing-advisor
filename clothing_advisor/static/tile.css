@@ -68,3 +68,8 @@ body.tilepage.gridmode { font-size: clamp(12px, 3vmin, 17px); }
 .ginfo li { margin: 0 0 .7em; }
 .ginfo li b { display: block; }
 .ginfo li span { display: block; color: var(--muted); line-height: 1.35; }
+
+/* Read-only (tv): larger text for viewing from a distance, nothing to point at */
+body.tilepage.readonly { cursor: none; font-size: clamp(14px, 3.6vmin, 30px); }
+body.tilepage.readonly.gridmode { font-size: clamp(14px, 3.8vmin, 30px); }
+body.tilepage.readonly .slide { padding-bottom: .8em; }

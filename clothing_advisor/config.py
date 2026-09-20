@@ -17,6 +17,7 @@ class Config:
     data_dir: Path
     access_token: str
     tile_token: str  # optional, opens only the tile (see web.TILE_ROUTES)
+    view_token: str  # optional, read-only: shows the suggestions, can change nothing (see web.VIEW_ROUTES)
     public_base_url: str
 
     catalog_model: str
@@ -50,14 +51,19 @@ class Config:
         token = _get("CA_ACCESS_TOKEN")
         if len(token) < 16:
             raise RuntimeError("CA_ACCESS_TOKEN must be set to a random string of at least 16 characters")
-        tile = _get("CA_TILE_TOKEN")
-        if tile and (len(tile) < 16 or tile == token):
-            raise RuntimeError("CA_TILE_TOKEN must be at least 16 characters and different from CA_ACCESS_TOKEN")
+        tile, view = _get("CA_TILE_TOKEN"), _get("CA_VIEW_TOKEN")
+        for name, value in (("CA_TILE_TOKEN", tile), ("CA_VIEW_TOKEN", view)):
+            if value and len(value) < 16:
+                raise RuntimeError(f"{name} must be at least 16 characters")
+        chosen = [t for t in (token, tile, view) if t]
+        if len(set(chosen)) != len(chosen):
+            raise RuntimeError("CA_ACCESS_TOKEN, CA_TILE_TOKEN and CA_VIEW_TOKEN must all be different")
         pcts = tuple(sorted(int(p) for p in _get("BUDGET_ALERT_PCTS", "80,100").split(",") if p.strip()))
         return cls(
             data_dir=Path(_get("DATA_DIR", "./data")),
             access_token=token,
             tile_token=tile,
+            view_token=view,
             public_base_url=_get("PUBLIC_BASE_URL").rstrip("/"),
             catalog_model=_get("CATALOG_MODEL", "claude-sonnet-5"),
             stylist_model=_get("STYLIST_MODEL", "claude-sonnet-5"),

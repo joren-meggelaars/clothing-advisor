@@ -4,6 +4,7 @@ window.api = function (path, opts) {
   let url = path;
   if (CA.t) url += (url.includes("?") ? "&" : "?") + "t=" + encodeURIComponent(CA.t);
   if (CA.k) url += (url.includes("?") ? "&" : "?") + "k=" + encodeURIComponent(CA.k);
+  if (CA.v) url += (url.includes("?") ? "&" : "?") + "v=" + encodeURIComponent(CA.v);
   return fetch(url, opts).then(async (r) => {
     let body = null;
     try { body = await r.json(); } catch (e) { /* not JSON */ }
