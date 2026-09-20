@@ -35,8 +35,10 @@ TV kiosk ── REST sensor ─┼─ NPM (https) ──► clothing-advisor ─
 6. **Morning suggestion**: every morning at a time you set (default 06:30) the app prepares 3 outfits by itself, so the
    tile already shows them. It is skipped when you asked for advice or picked an outfit that day, retries when something
    goes wrong, and costs roughly EUR 1.50 a month (Settings -> Morning suggestion).
-7. **Tile view** (`/app/tile`): a compact, self-scaling view for the Home Assistant iframe card. Swipe through the
-   suggestions, tap *Wear this*, later *I wore it* and a star rating; *Another* asks for different options.
+7. **Tile view** (`/app/tile`): a compact view for the Home Assistant iframe card that adapts to the tile size. A wide
+   tile shows the three suggestions side by side plus a box with the descriptions; a smaller one becomes a slideshow that
+   changes every 5 seconds. Tap *Wear this*, later *I wore it* and a star rating; *Another* asks for different options.
+   Force a layout with `?mode=grid` or `?mode=slideshow`, and the pace with `?interval=8`.
 
 ## Cost control
 

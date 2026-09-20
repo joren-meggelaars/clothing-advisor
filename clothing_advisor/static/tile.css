@@ -54,3 +54,17 @@ body.tilepage { overflow: hidden; background: var(--card); font-size: clamp(12px
 @media (max-height: 210px) {
   .topline, .dots, .cap { display: none; }
 }
+
+/* Grid: three suggestions side by side plus a fourth box with the descriptions */
+body.tilepage.gridmode { font-size: clamp(12px, 3vmin, 17px); }
+.gridwrap { flex: 1 1 auto; min-height: 0; display: grid; gap: .8em; padding: .3em .8em .8em; }
+.gcard { min-width: 0; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: .35em; border-radius: .9em; padding: .25em; }
+.gcard.picked { outline: 2px solid var(--accent); }
+.gcard .collage { flex: 0 1 auto; min-height: 0; width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: .7em; }
+.gname { flex: 0 0 auto; text-align: center; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gcard button, .ginfo button { flex: 0 0 auto; padding: .6em .4em; font-size: 1em; border-radius: .8em; }
+.ginfo { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: .5em; }
+.ginfo ol { flex: 1 1 auto; min-height: 0; margin: 0; padding: 0; list-style: none; overflow-y: auto; }
+.ginfo li { margin: 0 0 .7em; }
+.ginfo li b { display: block; }
+.ginfo li span { display: block; color: var(--muted); line-height: 1.35; }

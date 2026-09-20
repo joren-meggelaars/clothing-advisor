@@ -1,24 +1,54 @@
 // Compact tile for the Home Assistant dashboard. Shows today's prepared suggestions; one tap to pick one.
+//
+// Layout follows the size of the tile (the iframe):
+//   wide enough  -> "grid": the suggestions side by side, plus a fourth box with all the descriptions
+//   otherwise    -> "slideshow": one suggestion at a time, changing by itself every few seconds
+// Override in the card URL with  ?mode=grid  or  ?mode=slideshow  and the pace with  ?interval=8  (seconds).
 (function () {
   const root = document.getElementById("root");
   const CFG = window.CA || {};
+  const PARAMS = new URLSearchParams(location.search);
+  const FORCE = PARAMS.get("mode") || "auto";
+  const INTERVAL = Math.max(2, Number(PARAMS.get("interval")) || 5) * 1000;
+  const PAUSE_AFTER_TOUCH = 20 * 1000;
   const post = (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
 
-  let state = null;       // response of /api/advice/current
+  let state = null;         // response of /api/advice/current
   let view = "suggestions"; // "suggestions" | "today"
-  let index = 0;          // visible suggestion
-  let busy = "";          // text of the "working" overlay
+  let index = 0;            // visible suggestion (slideshow)
+  let busy = "";            // text of the "working" overlay
   let error = "";
-  let lastSig = "";      // what the last refresh looked like, to avoid redrawing while you swipe
+  let lastSig = "";         // what the last refresh looked like, to avoid redrawing while you swipe
+  let pausedUntil = 0;      // slideshow stays put for a while after you touched the tile
 
   const signature = (s) => JSON.stringify([s.outfits.map((o) => [o.id, o.status, o.rating && o.rating.stars]),
     s.today && [s.today.id, s.today.status, s.today.rating && s.today.rating.stars], s.weather_short]);
+
+  // Grid needs room for three collages and a text box; measured on the tile itself.
+  function useGrid(n) {
+    if (n < 2 || FORCE === "slideshow") return false;
+    if (FORCE === "grid") return true;
+    const w = window.innerWidth, h = window.innerHeight;
+    return w >= 680 && w / h >= 1.5;
+  }
 
   function slide(o, label) {
     return `<article class="slide">
       <img class="collage" src="${esc(o.image_square || o.image)}" alt="${esc(o.name)}">
       <div class="cap">${label ? `<div class="label">${esc(label)}</div>` : ""}
         <h2>${esc(o.name)}</h2><p>${esc(o.reason || o.items_text || "")}</p></div></article>`;
+  }
+
+  function gridView(list) {
+    const cards = list.map((o, i) =>
+      `<div class="gcard ${o.status === "chosen" ? "picked" : ""}">
+         <img class="collage" src="${esc(o.image_square || o.image)}" alt="${esc(o.name)}">
+         <div class="gname">${i + 1} · ${esc(o.name)}</div>
+         <button class="primary" data-act="wear" data-i="${i}">✓ Wear this</button></div>`).join("");
+    const info = `<div class="ginfo"><ol>${list.map((o, i) =>
+      `<li><b>${i + 1} · ${esc(o.name)}</b><span>${esc(o.reason || o.items_text || "")}</span></li>`).join("")}</ol>
+      <button data-act="another">↻ Another</button></div>`;
+    return `<div class="gridwrap" style="grid-template-columns: repeat(${list.length}, minmax(0, 1fr)) minmax(0, 1.3fr)">${cards}${info}</div>`;
   }
 
   function stars(o) {
@@ -41,6 +71,7 @@
     if (!state) { root.innerHTML = '<p class="msg">Loading…</p>'; return; }
     const today = state.today;
     const list = state.outfits;
+    document.body.classList.remove("gridmode");
 
     if (view === "today" && today) {
       const worn = today.status === "worn";
@@ -56,6 +87,12 @@
         `<button class="primary" data-act="suggest">Suggest now</button></div>`);
       return;
     }
+    if (useGrid(list.length)) {
+      document.body.classList.add("gridmode");
+      root.innerHTML = frame(`<div class="stage">${gridView(list)}</div>`);
+      return;
+    }
+
     index = Math.min(index, list.length - 1);
     root.innerHTML = frame(
       `<div class="stage"><div class="slides" id="slides">${list.map((o) => slide(o, o.status === "chosen" ? "Your pick" : "")).join("")}</div>` +
@@ -84,9 +121,10 @@
   root.addEventListener("click", (e) => {
     const b = e.target.closest("button");
     if (!b || busy || !b.dataset.act) return;
+    pausedUntil = Date.now() + PAUSE_AFTER_TOUCH;
     const act = b.dataset.act;
     if (act === "wear") {
-      const o = state.outfits[index];
+      const o = state.outfits[b.dataset.i !== undefined ? Number(b.dataset.i) : index];
       run("Saving…", async () => { state = await post(`/api/outfits/${o.id}/choose`); view = "today"; });
     } else if (act === "wore") {
       run("Saving…", async () => { state = await post(`/api/outfits/${state.today.id}/worn`); });
@@ -108,7 +146,26 @@
     }
   });
 
-  // Keep a wall-mounted tile current: refresh now and then, and poll while waiting for the morning suggestion.
+  // Slideshow: move on by itself, but not while you are swiping or right after you touched the tile.
+  ["pointerdown", "wheel", "touchstart"].forEach((ev) =>
+    root.addEventListener(ev, () => { pausedUntil = Date.now() + PAUSE_AFTER_TOUCH; }, { passive: true }));
+  setInterval(() => {
+    if (busy || document.hidden || Date.now() < pausedUntil) return;
+    if (view !== "suggestions" || !state || state.outfits.length < 2 || useGrid(state.outfits.length)) return;
+    const slides = document.getElementById("slides");
+    if (!slides) return;
+    index = (index + 1) % state.outfits.length;
+    slides.scrollTo({ left: index * slides.clientWidth, behavior: "smooth" });
+  }, INTERVAL);
+
+  // The tile can change size (dashboard resized, phone rotated): pick the layout again.
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { if (state && !busy) render(); }, 150);
+  });
+
+  // Keep a wall-mounted tile current: refresh now and then, and pick up the morning suggestion when it appears.
   async function refresh() {
     if (busy) return;
     try {
