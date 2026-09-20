@@ -231,3 +231,68 @@ def test_settings_for_the_morning_suggestion(client, fake):
     assert not auto.enabled()
     r = client.post("/app/settings/auto-run", headers=h, follow_redirects=False)
     assert r.status_code == 303 and "not possible" in auto.status()          # empty wardrobe: reported, no crash
+
+
+# ------------------------------------------------------------------ tile token: access limited to the tile
+TILE = "tile-token-0123456789abcdef"
+
+
+@pytest.fixture
+def tile_client(env, fake, monkeypatch):
+    from datetime import date
+    from clothing_advisor.config import Config
+    monkeypatch.setenv("CA_TILE_TOKEN", TILE)
+    monkeypatch.setattr(stylist, "today_date", lambda cfg: date(2026, 7, 15))
+    app = create_app(Config.from_env(), fake, start_worker=False)
+    with TestClient(app, base_url="http://testserver") as c:
+        c.ctx = app.state.ctx
+        yield c
+
+
+def test_tile_token_opens_the_tile_and_nothing_else(tile_client, fake):
+    c = tile_client
+    full = {"Authorization": f"Bearer {TOKEN}"}
+    w = _wardrobe(c.ctx)
+    fake.queue({"reply": "ok", "outfits": [
+        {"name": "Tee & chinos", "item_ids": [w["top"], w["bottom"], w["footwear"]], "rationale": "easy"}],
+        "exclude_item_ids": []})
+    oid = c.post("/api/advice", json={"message": "casual", "new_session": True}, headers=full).json()["outfits"][0]["id"]
+    k = f"k={TILE}"
+
+    page = c.get(f"/app/tile?{k}")
+    assert page.status_code == 200 and TILE in page.text
+    assert TOKEN not in page.text and "ca_auth" not in page.cookies          # the full token never reaches the tile
+    assert 'full: "/app"' in page.text                                       # "Open app" carries no token
+    cur = c.get(f"/api/advice/current?{k}").json()
+    assert cur["outfits"] and k in cur["outfits"][0]["image_square"]        # image links carry the tile token
+    assert c.get(cur["outfits"][0]["image_square"]).status_code == 200
+    assert c.post(f"/api/outfits/{oid}/rate?{k}", json={"stars": 4}).status_code == 200
+    assert c.post(f"/api/outfits/{oid}/choose?{k}").status_code == 200
+    assert c.post(f"/api/outfits/{oid}/worn?{k}").status_code == 200
+
+    for method, path in [("get", "/app"), ("get", "/app/wardrobe"), ("get", "/app/settings"), ("get", "/app/costs"),
+                         ("get", "/app/add"), ("get", "/api/queue"), ("get", "/api/tv"), ("get", "/api/estimate?n=1"),
+                         ("post", "/api/upload"), ("post", f"/api/outfits/{oid}/reject"), ("post", "/api/inbox/import"),
+                         ("get", "/img/photos/p1.jpg"), ("post", "/app/settings/auto-run"), ("post", "/app/costs/budget"),
+                         ("post", "/app/laundry/clean")]:
+        r = getattr(c, method)(f"{path}{'&' if '?' in path else '?'}{k}")
+        assert r.status_code == 403, (method, path, r.status_code)
+
+
+def test_wrong_or_missing_tile_token_is_refused(tile_client):
+    assert tile_client.get("/app/tile?k=nope-nope-nope-nope-nope").status_code == 401
+    assert tile_client.get("/app/tile").status_code == 401
+    assert tile_client.get(f"/app/tile?t={TOKEN}").status_code == 200        # the full token still works everywhere
+
+
+def test_tile_token_feature_is_off_unless_configured(client):
+    assert client.get(f"/app/tile?k={TILE}").status_code == 401              # no CA_TILE_TOKEN set: k means nothing
+    assert client.get(f"/app/tile?t={TOKEN}").status_code == 200
+
+
+def test_tile_token_must_be_long_and_different(env, monkeypatch):
+    from clothing_advisor.config import Config
+    for bad in (TOKEN, "short"):
+        monkeypatch.setenv("CA_TILE_TOKEN", bad)
+        with pytest.raises(RuntimeError):
+            Config.from_env()

@@ -1,16 +1,17 @@
 # Dashboard tile: today's outfit suggestions, prepared every morning, one tap to pick one ("tile view").
-# The token in the URL is your CA_ACCESS_TOKEN; the app remembers it in a cookie after the first load.
+# Use the tile token (CA_TILE_TOKEN, ?k=...): it always works inside the dashboard (no cookie needed) and it can only
+# show and pick the suggestions, so it is safe to keep in the dashboard config. Do not put CA_ACCESS_TOKEN here.
 #
 # The tile adapts to its size (the tile itself, not the screen):
 #   wide enough (about 680 px and up, wider than 3:2)  -> three suggestions side by side plus a box with the descriptions
 #   otherwise                                          -> a slideshow that changes by itself every 5 seconds
 # Force one of them with ?mode=grid or ?mode=slideshow, and change the pace with ?interval=8 (seconds), e.g.
-#   url: https://ca.example.nl/app/tile?mode=slideshow&interval=8&t=YOUR_CA_ACCESS_TOKEN
+#   url: https://ca.example.nl/app/tile?mode=slideshow&interval=8&k=YOUR_CA_TILE_TOKEN
 #
 # rows: 7 is roughly 440 px high. If the picture does not fill the tile, adjust rows or aspect_ratio.
 # For the full app (chat, photos, wardrobe, settings) open /app instead of /app/tile, or use "Open app" in the tile.
 type: iframe
-url: https://ca.example.nl/app/tile?t=YOUR_CA_ACCESS_TOKEN
+url: https://ca.example.nl/app/tile?k=YOUR_CA_TILE_TOKEN
 aspect_ratio: 100%
 grid_options:
   columns: full

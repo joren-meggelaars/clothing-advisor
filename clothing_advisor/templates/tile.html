@@ -6,7 +6,7 @@
 <title>Outfit</title>
 <link rel="stylesheet" href="/static/app.css">
 <link rel="stylesheet" href="/static/tile.css">
-<script>window.CA = {t: {{ token|tojson }}, autoOn: {{ auto_on|tojson }}, autoTime: {{ auto_time|tojson }}, request: {{ auto_request|tojson }}, full: {{ u('/app')|tojson }}};</script>
+<script>window.CA = {t: {{ token|tojson }}, k: {{ tile_key|tojson }}, autoOn: {{ auto_on|tojson }}, autoTime: {{ auto_time|tojson }}, request: {{ auto_request|tojson }}, full: {{ full_url|tojson }}};</script>
 <script src="/static/app.js" defer></script>
 <script src="/static/tile.js" defer></script>
 </head>

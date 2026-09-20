@@ -1,7 +1,9 @@
 // Shared helpers. The token is only present when the browser did not accept our cookie (e.g. inside an iframe).
 window.api = function (path, opts) {
-  const t = (window.CA && window.CA.t) || "";
-  const url = t ? path + (path.includes("?") ? "&" : "?") + "t=" + encodeURIComponent(t) : path;
+  const CA = window.CA || {};
+  let url = path;
+  if (CA.t) url += (url.includes("?") ? "&" : "?") + "t=" + encodeURIComponent(CA.t);
+  if (CA.k) url += (url.includes("?") ? "&" : "?") + "k=" + encodeURIComponent(CA.k);
   return fetch(url, opts).then(async (r) => {
     let body = null;
     try { body = await r.json(); } catch (e) { /* not JSON */ }

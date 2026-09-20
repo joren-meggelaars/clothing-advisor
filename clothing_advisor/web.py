@@ -31,6 +31,20 @@ log = logging.getLogger("clothing_advisor")
 BASE = Path(__file__).parent
 SLOT_ORDER = {"outerwear": 0, "top": 1, "bottom": 2, "footwear": 3, "accessory": 4}
 PUBLIC_PREFIXES = ("/healthz", "/static/", "/img/")
+# What the tile token may do: show and act on the suggestions, nothing else (no upload, wardrobe, settings, costs).
+TILE_ROUTES = (
+    ("GET", re.compile(r"^/app/tile$")),
+    ("GET", re.compile(r"^/api/advice/current$")),
+    ("POST", re.compile(r"^/api/advice$")),
+    ("POST", re.compile(r"^/api/outfits/\d+/(choose|worn|rate)$")),
+    ("GET", re.compile(r"^/img/(collages|thumbs)/[A-Za-z0-9_.-]+$")),
+)
+
+
+def tile_allows(method: str, path: str) -> bool:
+    return any(m == method and rx.match(path) for m, rx in TILE_ROUTES)
+
+
 NAV = (("Advice", "/app"), ("Wardrobe", "/app/wardrobe"), ("Add", "/app/add"), ("Review", "/app/review"),
        ("Laundry", "/app/laundry"), ("Costs", "/app/costs"), ("Settings", "/app/settings"))
 
@@ -85,16 +99,29 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
 
     def url(request: Request, path: str) -> str:
         """Internal link; carries the token when the browser did not accept our cookie (iframe/Safari)."""
+        sep = "&" if "?" in path else "?"
         if getattr(request.state, "via_query", False):
-            return f"{path}{'&' if '?' in path else '?'}t={quote(cfg.access_token)}"
+            return f"{path}{sep}t={quote(cfg.access_token)}"
+        if getattr(request.state, "via_tile", False):
+            return f"{path}{sep}k={quote(cfg.tile_token)}"
         return path
 
     @app.middleware("http")
     async def guard(request: Request, call_next):
         source = auth_source(request)
+        path = request.url.path
+        request.state.via_tile = False
+        if source is None and cfg.tile_token:
+            k = request.query_params.get("k")
+            if k and _eq(k, cfg.tile_token):
+                if not tile_allows(request.method, path):
+                    if path.startswith("/api/"):
+                        return JSONResponse({"detail": "This link only opens the tile"}, status_code=403)
+                    return templates.TemplateResponse(request, "unauthorized.html", {}, status_code=403)
+                source = "tile"
+                request.state.via_tile = True
         request.state.authed = source is not None
         request.state.via_query = source == "query"
-        path = request.url.path
         if source is None and not path.startswith(PUBLIC_PREFIXES):
             if path.startswith("/api/"):
                 return JSONResponse({"detail": "Unauthorized"}, status_code=401)
@@ -111,7 +138,8 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
 
     def render(request: Request, name: str, status_code: int = 200, **kw: Any):
         kw.update(u=lambda p: url(request, p), token=cfg.access_token if request.state.via_query else "",
-                  nav=NAV, cost=ctx.tracker.summary(), msg=request.query_params.get("msg", ""))
+                  tile_key=cfg.tile_token if request.state.via_tile else "",
+                  full_url="/app" if request.state.via_tile else url(request, "/app"), nav=NAV, cost=ctx.tracker.summary(), msg=request.query_params.get("msg", ""))
         return templates.TemplateResponse(request, name, kw, status_code=status_code)
 
     def redirect(request: Request, path: str, msg: str = "") -> RedirectResponse:

@@ -40,6 +40,13 @@ TV kiosk ── REST sensor ─┼─ NPM (https) ──► clothing-advisor ─
    changes every 5 seconds. Tap *Wear this*, later *I wore it* and a star rating; *Another* asks for different options.
    Force a layout with `?mode=grid` or `?mode=slideshow`, and the pace with `?interval=8`.
 
+## Access
+
+`CA_ACCESS_TOKEN` opens everything (phone, admin pages, the Home Assistant sensor). For the dashboard tile use the separate
+`CA_TILE_TOKEN` (`/app/tile?k=...`): it works inside an iframe without cookies and it can only show the suggestions, pick
+one, rate it and ask for new ones. It cannot upload or delete photos, change settings or see the wardrobe and the costs.
+If it ever leaks, change it in `.env` and in the tile URL; nothing else is affected.
+
 ## Cost control
 
 Every Claude call is logged with tokens and an EUR estimate (Costs page). `MONTHLY_BUDGET_EUR` (default 10) has
