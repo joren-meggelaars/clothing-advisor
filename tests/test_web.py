@@ -411,3 +411,14 @@ def test_static_assets_are_versioned_and_revalidated(client):
     r = client.get(f"/static/app.js?v={versions.pop()}")                  # public, no token needed
     assert r.status_code == 200 and r.headers["cache-control"] == "no-cache"
     assert "window.api" in r.text
+
+
+def test_advice_api_accepts_an_empty_request(client, fake):
+    h = {"Authorization": f"Bearer {TOKEN}"}
+    w = _wardrobe(client.ctx)
+    fake.queue({"reply": "Fresh for today.", "outfits": [
+        {"name": "Tee & chinos", "item_ids": [w["top"], w["bottom"], w["footwear"]], "rationale": "easy"}],
+        "exclude_item_ids": []})
+    r = client.post("/api/advice", json={"message": "", "new_session": True}, headers=h)
+    assert r.status_code == 200 and r.json()["outfits"]
+    assert "fitting the weather" in fake.calls[0]["messages"][-1]["content"]

@@ -266,3 +266,28 @@ def test_all_shoes_in_the_wash_fails_early_without_creating_a_session(ctx, fake,
     with pytest.raises(ValueError, match="No clean shoes"):
         stylist.Stylist(ctx.cfg, ctx.db, ctx.llm, ctx.weather).advise("casual")
     assert fake.calls == [] and ctx.db.latest_session() is None
+
+
+# ------------------------------------------------------------------ nothing typed: a suggestion that fits the weather
+def test_empty_request_falls_back_to_a_weather_aware_default(ctx, fake, wardrobe):
+    w = wardrobe
+    ctx.weather.get = lambda refresh=False: {"text": "Now 12C, cloudy. Today high 15C / low 8C", "t_high": 15.0}
+    fake.queue({"reply": "ok", "outfits": [{"name": "Polo & chinos", "item_ids": [w["polo"], w["chinos"], w["sneakers"]],
+                                            "rationale": "mild day"}], "exclude_item_ids": []})
+    result = stylist.Stylist(ctx.cfg, ctx.db, ctx.llm, ctx.weather).advise("   ")
+    user = fake.calls[0]["messages"][-1]["content"]
+    assert "Request: Suggest my outfit for today, fitting the weather." in user
+    assert "Weather: Now 12C, cloudy" in user                                  # the weather still goes into the request
+    assert len(result["outfit_ids"]) == 1
+
+
+def test_empty_request_while_refining_asks_for_different_options(ctx, fake, wardrobe):
+    w = wardrobe
+    st = stylist.Stylist(ctx.cfg, ctx.db, ctx.llm, ctx.weather)
+    first = {"name": "A", "item_ids": [w["polo"], w["chinos"], w["sneakers"]], "rationale": "r"}
+    fake.queue({"reply": "ok", "outfits": [first], "exclude_item_ids": []},
+               {"reply": "ok", "outfits": [{**first, "name": "B", "item_ids": [w["tee"], w["shorts"], w["sneakers"]]}],
+                "exclude_item_ids": []})
+    st.advise("casual")
+    st.advise("")                                                              # same conversation, nothing typed
+    assert "Request: Give me different options." in fake.calls[1]["messages"][-1]["content"]

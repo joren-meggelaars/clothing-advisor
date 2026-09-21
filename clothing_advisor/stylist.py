@@ -21,6 +21,8 @@ DEFAULT_STYLE_PROFILE = (
     "Prefer relaxed, modern, well-fitting pieces in a coherent palette."
 )
 SESSION_MAX_AGE = timedelta(hours=12)
+DEFAULT_REQUEST = "Suggest my outfit for today, fitting the weather."
+REFINE_REQUEST = "Give me different options."
 HISTORY_TURNS = 6
 
 # Wears before an item goes to the wash. 0 = never automatically.
@@ -227,8 +229,6 @@ class Stylist:
         cfg, db = self.cfg, self.db
         today = today_date(cfg)
         message = message.strip()[:1000]
-        if not message:
-            raise ValueError("Say what you are looking for (e.g. 'something casual').")
 
         ready, why_not = wardrobe_readiness(db)
         if not ready:
@@ -236,6 +236,8 @@ class Stylist:
         all_items = usable_items(db)
 
         session = None if new_session else current_session(db, cfg)
+        if not message:   # nothing typed: a suggestion that fits the weather and his usual style (or other options when refining)
+            message = REFINE_REQUEST if session else DEFAULT_REQUEST
         excluded = set(session["excluded"]) if session else set()
         excluded |= {int(i) for i in (exclude_ids or [])}
 
