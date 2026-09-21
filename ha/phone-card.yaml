@@ -9,7 +9,8 @@
 #   url: https://ca.example.nl/app/tile?mode=slideshow&interval=8&k=YOUR_CA_TILE_TOKEN
 #
 # rows: 7 is roughly 440 px high. If the picture does not fill the tile, adjust rows or aspect_ratio.
-# For the full app (chat, photos, wardrobe, settings) open /app instead of /app/tile, or use "Open app" in the tile.
+# "Open app" in the tile leads to a sign-in form for the full app (enter CA_ACCESS_TOKEN once on that device).
+# Over Tailscale the url is https://<host>.<tailnet>.ts.net:10000/app/tile?k=... (see DEPLOY.md).
 type: iframe
 url: https://ca.example.nl/app/tile?k=YOUR_CA_TILE_TOKEN
 aspect_ratio: 100%

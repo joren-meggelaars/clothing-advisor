@@ -21,10 +21,47 @@ def client(cfg, fake, monkeypatch):
 
 
 def test_requires_token(client):
-    assert client.get("/app").status_code == 401
-    assert client.get("/api/tv").status_code == 401
+    for path in ("/app", "/app?t=wrong", "/app/wardrobe"):                       # pages lead to a sign-in form
+        r = client.get(path, follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"].startswith("/app/login?next=/app"), path
+    assert client.get("/api/tv").status_code == 401                               # APIs answer with a plain 401
+    assert client.get("/app/tile").status_code == 401                             # the tile never shows a login form
     assert client.get("/healthz").status_code == 200
-    assert client.get("/app?t=wrong").status_code == 401
+
+
+def test_login_page_signs_in_with_the_access_token(client, monkeypatch):
+    monkeypatch.setattr("clothing_advisor.web.time.sleep", lambda s: None)
+    page = client.get("/app/login")
+    assert page.status_code == 200 and 'type="password"' in page.text and "ca_auth" not in page.cookies
+
+    bad = client.post("/app/login", data={"token": "nope", "next": "/app"}, follow_redirects=False)
+    assert bad.status_code == 401 and "not the right access token" in bad.text and "ca_auth" not in bad.cookies
+
+    ok = client.post("/app/login", data={"token": f"  {TOKEN} ", "next": "/app/wardrobe"}, follow_redirects=False)
+    assert ok.status_code == 303 and ok.headers["location"] == "/app/wardrobe" and "ca_auth" in ok.cookies
+    assert client.get("/app/wardrobe").status_code == 200                         # the cookie now opens the app
+    again = client.get("/app/login?next=/app/costs", follow_redirects=False)     # already signed in: straight through
+    assert again.status_code == 303 and again.headers["location"] == "/app/costs"
+
+
+def test_login_never_redirects_outside_the_app_and_brakes_guessing(client, monkeypatch):
+    monkeypatch.setattr("clothing_advisor.web.time.sleep", lambda s: None)
+    for evil in ("https://evil.example/", "//evil.example", "/other", "/app\\evil"):
+        r = client.post("/app/login", data={"token": TOKEN, "next": evil}, follow_redirects=False)
+        assert r.headers["location"] == "/app", evil
+        client.cookies.clear()
+    for _ in range(20):
+        assert client.post("/app/login", data={"token": "wrong"}, follow_redirects=False).status_code == 401
+    blocked = client.post("/app/login", data={"token": TOKEN}, follow_redirects=False)   # even the right token waits
+    assert blocked.status_code == 429 and "ca_auth" not in blocked.cookies
+
+
+def test_tile_token_cannot_reach_the_login_or_the_app_but_open_app_leads_to_sign_in(tile_client):
+    assert tile_client.get(f"/app/login?k={TILE}").status_code == 403
+    page = tile_client.get(f"/app/tile?k={TILE}")
+    assert 'full: "/app"' in page.text and TOKEN not in page.text                # "Open app" goes to /app -> sign-in form
+    r = tile_client.get("/app", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/app/login?next=/app"
 
 
 def test_token_in_query_sets_cookie_and_keeps_links_working_without_cookies(client):

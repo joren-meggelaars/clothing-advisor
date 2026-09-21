@@ -52,6 +52,8 @@ Three tokens, from most to least powerful (all optional except the first, all mu
 
 The tile tokens work inside an iframe without cookies. If one leaks, change it in `.env` and in the tile URL; nothing else is affected.
 
+**Signing in to the full app:** open `/app` on a new device and you land on a sign-in form; enter `CA_ACCESS_TOKEN` once (a password manager can remember it) and that browser stays signed in for a year. The "Open app" link in the tile leads there, so the tile itself never carries the master token. Wrong tokens are slowed down and, after 20 misses in ten minutes, refused for a while.
+
 ## Cost control
 
 Every Claude call is logged with tokens and an EUR estimate (Costs page). `MONTHLY_BUDGET_EUR` (default 10) has

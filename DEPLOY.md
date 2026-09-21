@@ -67,6 +67,19 @@ Open the app from the phone card -> *Add*: pick photos (camera or gallery) -> co
 queue -> *Review*, correct and approve -> *Advice*. To load many photos at once, copy them to `data/inbox/` on the VM
 and press "Import inbox".
 
+## Optional: reach the app over Tailscale (phone away from home)
+
+If Home Assistant is opened through Tailscale, serve the app there too (the phone tile then works anywhere, no NPM involved):
+
+```bash
+tailscale serve status                                   # see which ports are taken; never run `tailscale serve reset`
+sudo tailscale serve --bg --https=10000 http://127.0.0.1:8080
+```
+
+Tile URL: `https://<this-host>.<tailnet>.ts.net:10000/app/tile?k=<CA_TILE_TOKEN>`. Put every address you open Home Assistant with in
+`HA_ORIGIN`, separated by spaces (for example `http://10.0.20.20:8123 https://homeassistant.<tailnet>.ts.net`). Tailscale must be
+on on the phone. The tv keeps using the NPM address on the home network.
+
 ## Operations
 
 - Update: `git pull && docker compose up -d --build`.

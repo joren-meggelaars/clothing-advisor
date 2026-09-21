@@ -7,6 +7,7 @@ import hmac
 import json
 import logging
 import re
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -31,7 +32,7 @@ from .weather import Weather
 log = logging.getLogger("clothing_advisor")
 BASE = Path(__file__).parent
 SLOT_ORDER = {"outerwear": 0, "top": 1, "bottom": 2, "footwear": 3, "accessory": 4}
-PUBLIC_PREFIXES = ("/healthz", "/static/", "/img/")
+PUBLIC_PREFIXES = ("/healthz", "/static/", "/img/", "/app/login")
 # What the tile token may do: show and act on the suggestions, nothing else (no upload, wardrobe, settings, costs).
 TILE_ROUTES = (
     ("GET", re.compile(r"^/app/tile$")),
@@ -139,6 +140,24 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
                 return name, routes
         return None
 
+    def set_auth_cookie(response) -> None:
+        response.set_cookie("ca_auth", cfg.access_token, max_age=365 * 86400, httponly=True,
+                            secure=https, samesite="none" if https else "lax")
+
+    failed_logins: list[float] = []      # timestamps of wrong tokens: crude brute-force brake (the token is 192 bits anyway)
+
+    def login_blocked() -> bool:
+        cutoff = time.time() - 600
+        failed_logins[:] = [t for t in failed_logins if t > cutoff]
+        return len(failed_logins) >= 20
+
+    def safe_next(value: str) -> str:
+        """Only paths inside the app; never an external address."""
+        return value if value.startswith("/app") and not value.startswith("//") and "\\" not in value else "/app"
+
+    def login_page(request: Request, error: str = "", nxt: str = "/app", status_code: int = 200):
+        return templates.TemplateResponse(request, "login.html", {"error": error, "next": nxt}, status_code=status_code)
+
     @app.middleware("http")
     async def guard(request: Request, call_next):
         source = auth_source(request)
@@ -159,11 +178,12 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
         if source is None and not path.startswith(PUBLIC_PREFIXES):
             if path.startswith("/api/"):
                 return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+            if request.method == "GET" and path.startswith("/app") and path != "/app/tile":
+                return RedirectResponse(f"/app/login?next={quote(path)}", status_code=303)   # a sign-in form, not a dead end
             return templates.TemplateResponse(request, "unauthorized.html", {}, status_code=401)
         response = await call_next(request)
         if source == "query" and response.status_code < 400:
-            response.set_cookie("ca_auth", cfg.access_token, max_age=365 * 86400, httponly=True,
-                                secure=https, samesite="none" if https else "lax")
+            set_auth_cookie(response)
         if path.startswith("/static/"):
             response.headers["Cache-Control"] = "no-cache"      # always revalidate (cheap: ETag)
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -256,6 +276,26 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
     @app.get("/")
     def root(request: Request):
         return redirect(request, "/app")
+
+    @app.get("/app/login")
+    def login_form(request: Request, next: str = "/app"):
+        nxt = safe_next(next)
+        if request.state.authed:
+            return RedirectResponse(nxt, status_code=303)
+        return login_page(request, nxt=nxt)
+
+    @app.post("/app/login")
+    def login_submit(request: Request, token: str = Form(""), next: str = Form("/app")):
+        nxt = safe_next(next)
+        if login_blocked():
+            return login_page(request, "Too many wrong attempts. Try again in a few minutes.", nxt, 429)
+        if token and _eq(token.strip(), cfg.access_token):
+            response = RedirectResponse(nxt, status_code=303)
+            set_auth_cookie(response)
+            return response
+        failed_logins.append(time.time())
+        time.sleep(1)                                                       # slows guessing down
+        return login_page(request, "That is not the right access token.", nxt, 401)
 
     @app.get("/app")
     def page_advice(request: Request):

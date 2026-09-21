@@ -28,7 +28,7 @@ nav a.on { color: var(--ink); border-color: var(--accent); font-weight: 600; }
   padding: 8px 14px; font: inherit; text-decoration: none; cursor: pointer; }
 .chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 input, select, textarea, button { font: inherit; color: var(--ink); }
-input[type=text], input[type=number], input:not([type]), select, textarea {
+input[type=text], input[type=number], input[type=password], input:not([type]), select, textarea {
   width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
 button { padding: 10px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); cursor: pointer; }
 button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
