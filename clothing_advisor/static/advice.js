@@ -66,6 +66,7 @@
     try {
       const state = await post("/api/advice", Object.assign({
         message, new_session: mode === "new", ignore_weather: $("noweather").checked,
+        ignore_workdays: $("ignorework").checked, extra_formal: $("formal").checked,
       }, extra || {}));
       $("status").textContent = "";
       fb = null;

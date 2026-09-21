@@ -17,6 +17,23 @@
 <form method="post" action="{{ u('/app/settings/test-weather') }}"><button>Test weather</button></form>
 
 <section class="card">
+  <h2>Workdays</h2>
+  <p class="muted small">On workdays the suggestions lean smart casual / casual chic and leave out sportswear; on days off
+    they stay relaxed. You can override a single day on the Advice page with "Ignore workdays" or "Extra formal".</p>
+  <form method="post" action="{{ u('/app/settings/work') }}">
+    <div class="row">
+      {% for n, label in [(0, 'Mon'), (1, 'Tue'), (2, 'Wed'), (3, 'Thu'), (4, 'Fri'), (5, 'Sat'), (6, 'Sun')] %}
+      <label class="chk"><input type="checkbox" name="days" value="{{ n }}" {{ 'checked' if n in work_days }}> {{ label }}</label>
+      {% endfor %}
+    </div>
+    <label>What a workday should look like
+      <textarea name="work_dress" rows="3" maxlength="500">{{ work_dress }}</textarea></label>
+    <p class="muted small">Leave the text as it is, or make it fit your office. Reset by pasting: {{ default_work_dress }}</p>
+    <button class="primary">Save</button>
+  </form>
+</section>
+
+<section class="card">
   <h2>Morning suggestion</h2>
   <p class="muted small">Prepares your outfit suggestions automatically so they are already on the tile when you look.
     It is skipped when you already asked for advice or picked an outfit that day, and it retries a few times if something

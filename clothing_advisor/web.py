@@ -300,8 +300,10 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
     @app.get("/app")
     def page_advice(request: Request):
         ready, not_ready_reason = stylist.wardrobe_readiness(ctx.db)
+        day = stylist.day_context(ctx.db, stylist.today_date(cfg))
         return render(request, "advice.html", active="/app", ready=ready, not_ready_reason=not_ready_reason,
-                      weather_on=bool(ctx.weather.entity()), n=stylist.outfit_count(cfg, ctx.db))
+                      weather_on=bool(ctx.weather.entity()), n=stylist.outfit_count(cfg, ctx.db),
+                      day_name=day["name"], workday=day["workday"])
 
     @app.get("/app/tile")
     def page_tile(request: Request):
@@ -444,7 +446,16 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
                       channels=ctx.notifier.channels(), taste_profile=ctx.taste.profile(),
                       taste=ctx.taste.status(), distill_every=DISTILL_EVERY, auto_on=ctx.auto.enabled(),
                       auto_time=ctx.auto.at().strftime("%H:%M"), auto_request=ctx.auto.request(),
-                      auto_status=ctx.auto.status())
+                      auto_status=ctx.auto.status(), work_days=stylist.work_days(ctx.db),
+                      work_dress=stylist.work_dress(ctx.db), default_work_dress=stylist.DEFAULT_WORK_DRESS)
+
+    @app.post("/app/settings/work")
+    def settings_work(request: Request, days: list[str] = Form(default=[]), work_dress: str = Form("")):
+        valid = sorted({int(d) for d in days if d.isdigit() and 0 <= int(d) <= 6})
+        ctx.db.set_setting("work_days", ",".join(str(d) for d in valid))     # may be empty: no workdays at all
+        text = work_dress.strip()[:500]
+        ctx.db.set_setting("work_dress", "" if text == stylist.DEFAULT_WORK_DRESS else text)
+        return redirect(request, "/app/settings", "Workdays saved")
 
     @app.post("/app/settings")
     def settings_save(request: Request, profile: str = Form(""), weather_entity: str = Form(""),
@@ -525,7 +536,9 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
         try:
             ctx.stylist.advise(str(payload.get("message", "")), new_session=bool(payload.get("new_session")),
                                exclude_ids=[int(i) for i in payload.get("exclude_ids", [])],
-                               ignore_weather=bool(payload.get("ignore_weather")))
+                               ignore_weather=bool(payload.get("ignore_weather")),
+                               ignore_workdays=bool(payload.get("ignore_workdays")),
+                               extra_formal=bool(payload.get("extra_formal")))
         except ValueError as e:
             raise HTTPException(400, str(e))
         except BudgetExceeded as e:

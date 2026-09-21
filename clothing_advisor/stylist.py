@@ -23,6 +23,11 @@ DEFAULT_STYLE_PROFILE = (
 SESSION_MAX_AGE = timedelta(hours=12)
 DEFAULT_REQUEST = "Suggest my outfit for today, fitting the weather."
 REFINE_REQUEST = "Give me different options."
+DEFAULT_WORK_DAYS = (0, 1, 2, 3, 4)          # Monday to Friday (date.weekday())
+DEFAULT_WORK_DRESS = ("Workday: smart casual / casual chic (formality about 3): a clean polo, fine knit or shirt jacket "
+                      "with chinos or dark jeans and clean sneakers or boots. Nothing sporty or loungewear.")
+EXTRA_FORMAL_NOTE = ("Extra formal requested: go one notch smarter than usual (formality 3-4 pieces, sharp and well matched). "
+                     "The style profile still wins: no suit, no dress shirt with suit trousers, no formal dress shoes.")
 HISTORY_TURNS = 6
 
 # Wears before an item goes to the wash. 0 = never automatically.
@@ -36,6 +41,7 @@ Rules:
 - Composition of one outfit: exactly one bottom, exactly one footwear, one or two tops (a base layer, optionally a mid layer over it; never two base layers or two mid layers), at most one outerwear piece, and 0-3 accessories only when they add something.
 - Colour: keep the palette coherent (neutrals plus at most one accent colour); avoid clashing patterns; avoid two very similar tones that nearly match.
 - Formality: all pieces of an outfit sit within about one level of the requested formality (1 sport ... 3 smart casual / casual chic ... 5 formal). Never mix sportswear with smart pieces.
+- Day type: the request says whether it is a workday or a day off. On workdays aim for smart casual / casual chic (nothing sporty); on days off relaxed casual is fine. If extra formal is requested, go one notch smarter than usual. The style profile's no-gos (suits, formal dress shoes) always win over all of this.
 - Weather: choose warmth and layers to fit the conditions given; add rain protection when precipitation is likely. The catalogue is already filtered for the weather.
 - Give real variety between the outfits (different bottoms and different overall feel where the catalogue allows it).
 - Respect the style profile. Never propose anything listed as unavailable or excluded, and never repeat a blocked outfit.
@@ -85,6 +91,45 @@ def weather_filter(items: list[dict[str, Any]], weather: dict[str, Any] | None, 
     for cat in ("top", "bottom", "footwear"):
         if not any(i["category"] == cat for i in kept):
             kept += [i for i in items if i["category"] == cat and i not in kept]
+    return sorted(kept, key=lambda i: i["id"])
+
+
+# --------------------------------------------------------------------------- workdays / formality
+def work_days(db: Database) -> set[int]:
+    """Weekdays (Monday=0) that count as workdays; editable in Settings."""
+    if not db.setting_exists("work_days"):
+        return set(DEFAULT_WORK_DAYS)
+    return {int(d) for d in db.get_setting("work_days").split(",") if d.strip().isdigit() and 0 <= int(d) <= 6}
+
+
+def work_dress(db: Database) -> str:
+    return db.get_setting("work_dress").strip() or DEFAULT_WORK_DRESS
+
+
+def day_context(db: Database, today: date, ignore_workdays: bool = False) -> dict[str, Any]:
+    """Is today a workday, and what does that mean for the outfit? (Days off are relaxed casual.)"""
+    name = today.strftime("%A")
+    scheduled = today.weekday() in work_days(db)
+    workday = scheduled and not ignore_workdays
+    if workday:
+        line = f"Day type: workday ({name}). {work_dress(db)}"
+    elif scheduled:
+        line = (f"Day type: day off. It is a {name}, but he ticked 'ignore workdays', so treat it as a day off: "
+                "relaxed casual is fine, comfort first.")
+    else:
+        line = f"Day type: day off ({name}): relaxed casual is fine, comfort first."
+    return {"workday": workday, "scheduled": scheduled, "name": name, "line": line}
+
+
+def formality_filter(items: list[dict[str, Any]], minimum: int) -> list[dict[str, Any]]:
+    """Keep items at or above a formality level (accessories always stay). Never empties a required slot: if nothing
+    is left of tops, bottoms or footwear, that slot steps down one level at a time until something is."""
+    kept = [i for i in items if (i["formality"] or 3) >= minimum or i["category"] == "accessory"]
+    for cat in ("top", "bottom", "footwear"):
+        level = minimum
+        while not any(i["category"] == cat for i in kept) and level > 1:
+            level -= 1
+            kept += [i for i in items if i["category"] == cat and (i["formality"] or 3) >= level and i not in kept]
     return sorted(kept, key=lambda i: i["id"])
 
 
@@ -225,7 +270,7 @@ class Stylist:
         self.cfg, self.db, self.llm, self.weather = cfg, db, llm, weather
 
     def advise(self, message: str, *, new_session: bool = False, exclude_ids: list[int] | None = None,
-               ignore_weather: bool = False) -> dict[str, Any]:
+               ignore_weather: bool = False, ignore_workdays: bool = False, extra_formal: bool = False) -> dict[str, Any]:
         cfg, db = self.cfg, self.db
         today = today_date(cfg)
         message = message.strip()[:1000]
@@ -243,6 +288,10 @@ class Stylist:
 
         weather = None if ignore_weather else self.weather.get()
         pool = all_items if ignore_weather else weather_filter(all_items, weather, today)
+        day = day_context(db, today, ignore_workdays)
+        minimum = 3 if extra_formal else (2 if day["workday"] else 1)      # workdays: no sportswear; extra formal: smart pieces only
+        if minimum > 1:
+            pool = formality_filter(pool, minimum)
         catalogue = [i for i in pool if i["id"] not in excluded]
         laundry = sorted(i["id"] for i in catalogue if i["status"] == "laundry")
         allowed = {i["id"]: i for i in catalogue if i["status"] == "clean"}
@@ -269,6 +318,7 @@ class Stylist:
         volatile = [
             f"Request: {message}",
             f"Today: {today.strftime('%A %d %B %Y')} ({season_of(today)})",
+            day["line"],
             f"Weather: {weather['text']}" if weather and weather.get("text")
             else "Weather: unknown (assume mild, no rain)" if not ignore_weather
             else "Weather: ignore it for this request (the user may be travelling)",
@@ -277,6 +327,8 @@ class Stylist:
             f"Blocked outfits (worn in the last {cfg.repeat_days} days, do not repeat): "
             f"{[sorted(s) for s in blocked if s not in disliked] or 'none'}",
         ]
+        if extra_formal:
+            volatile.append(EXTRA_FORMAL_NOTE)
         if disliked:
             volatile.append("Never propose these outfits again (he rated them poorly): "
                             f"{[sorted(s) for s in disliked]}")

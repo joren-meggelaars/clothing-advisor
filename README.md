@@ -54,6 +54,11 @@ The tile tokens work inside an iframe without cookies. If one leaks, change it i
 
 **Signing in to the full app:** open `/app` on a new device and you land on a sign-in form; enter `CA_ACCESS_TOKEN` once (a password manager can remember it) and that browser stays signed in for a year. The "Open app" link in the tile leads there, so the tile itself never carries the master token. Wrong tokens are slowed down and, after 20 misses in ten minutes, refused for a while.
 
+8. **Workdays**: Monday to Friday count as workdays (editable in Settings, together with what a workday should look like).
+   On a workday the suggestions lean smart casual / casual chic and sportswear is left out; on days off they stay relaxed.
+   On the Advice page *Ignore workdays* treats a weekday as a day off (leave, holiday) and *Extra formal* goes one notch smarter
+   for that request; the style profile's no-gos (suits, formal dress shoes) always win. The morning suggestion follows the same rules.
+
 ## Cost control
 
 Every Claude call is logged with tokens and an EUR estimate (Costs page). `MONTHLY_BUDGET_EUR` (default 10) has

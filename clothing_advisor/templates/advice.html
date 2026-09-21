@@ -17,11 +17,14 @@
   </div>
   <form id="ask" autocomplete="off">
     <input type="text" id="q" maxlength="1000" placeholder="Optional: something casual, or: lighter, not those trousers">
-    <p class="muted small" style="margin: 6px 2px 0">Leave it empty for a suggestion that fits today's weather.</p>
+    <p class="muted small" style="margin: 6px 2px 0">Leave it empty for a suggestion that fits today's weather.
+      Today is {{ 'a workday (' ~ day_name ~ '): suggestions lean smart casual.' if workday else 'a day off (' ~ day_name ~ '): relaxed casual.' }}</p>
     <div class="row">
       <label class="chk"><input type="radio" name="mode" value="new" checked> New request</label>
       <label class="chk"><input type="radio" name="mode" value="refine"> Refine current</label>
       <label class="chk"><input type="checkbox" id="noweather"> Ignore weather</label>
+      <label class="chk"><input type="checkbox" id="ignorework"> Ignore workdays</label>
+      <label class="chk"><input type="checkbox" id="formal"> Extra formal</label>
     </div>
     <button type="submit" id="go" class="primary">Suggest {{ n }} outfits</button>
   </form>
