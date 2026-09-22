@@ -422,3 +422,37 @@ def test_advice_api_accepts_an_empty_request(client, fake):
     r = client.post("/api/advice", json={"message": "", "new_session": True}, headers=h)
     assert r.status_code == 200 and r.json()["outfits"]
     assert "fitting the weather" in fake.calls[0]["messages"][-1]["content"]
+
+
+# ------------------------------------------------------------------ PWA icon / manifest
+def test_icon_and_manifest_files_are_public_and_correct(client):
+    for path, content_type in [
+        ("/static/manifest.json", "application/json"), ("/static/manifest-tile.json", "application/json"),
+        ("/static/favicon.svg", "image/svg+xml"), ("/static/favicon.png", "image/png"),
+        ("/static/apple-touch-icon.png", "image/png"), ("/static/icon-192.png", "image/png"),
+        ("/static/icon-512.png", "image/png"), ("/static/icon-maskable-192.png", "image/png"),
+        ("/static/icon-maskable-512.png", "image/png"),
+    ]:
+        r = client.get(path)  # no token: these must be reachable before the browser knows any auth
+        assert r.status_code == 200 and r.headers["content-type"].startswith(content_type), path
+
+    manifest = client.get("/static/manifest.json").json()
+    assert manifest["name"] == "Clothing Advisor" and manifest["start_url"] == "/app"
+    assert {i["purpose"] for i in manifest["icons"]} == {"any", "maskable"}
+    tile_manifest = client.get("/static/manifest-tile.json").json()
+    assert tile_manifest["start_url"] == "/app/tile"
+
+
+def test_pages_reference_the_manifest_and_icons(client):
+    h = {"Authorization": f"Bearer {TOKEN}"}
+    app_page = client.get("/app", headers=h).text
+    assert 'rel="manifest" href="/static/manifest.json?v=' in app_page
+    assert 'rel="apple-touch-icon" href="/static/apple-touch-icon.png?v=' in app_page
+    assert 'name="theme-color" content="#2f5d50"' in app_page
+
+    tile_page = client.get("/app/tile", headers=h).text
+    assert 'rel="manifest" href="/static/manifest-tile.json?v=' in tile_page
+    assert 'name="apple-mobile-web-app-title" content="Outfit"' in tile_page
+
+    assert 'rel="icon"' in client.get("/app/login").text
+    assert 'rel="icon"' in client.get("/app").text  # unauthenticated -> unauthorized.html, still has a favicon
