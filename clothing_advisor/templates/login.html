@@ -13,14 +13,23 @@
 <body>
 <main>
   <h1>Sign in</h1>
-  <p class="muted">Enter your access token once on this device. It stays signed in for a year, and your phone or password manager can remember it.</p>
   {% if error %}<div class="banner bad">{{ error }}</div>{% endif %}
+  {% if oidc_enabled %}
+  <div class="card">
+    <p class="muted">Sign in with your account (with your passkey or authenticator code).</p>
+    <a class="button primary" href="/app/oidc/start?next={{ next|urlencode }}">Sign in</a>
+  </div>
+  <details class="emergency"{{ ' open' if open_token }}>
+    <summary>Emergency access with the token</summary>
+  {% endif %}
+  <p class="muted">Enter your access token once on this device. It stays signed in for a year, and your phone or password manager can remember it.</p>
   <form method="post" action="/app/login" class="card">
     <input type="text" name="username" value="clothing-advisor" autocomplete="username" hidden>
     <input type="password" name="token" autocomplete="current-password" placeholder="Access token" required autofocus>
     <input type="hidden" name="next" value="{{ next }}">
     <button class="primary" style="margin-top: 12px">Sign in</button>
   </form>
+  {% if oidc_enabled %}</details>{% endif %}
 </main>
 </body>
 </html>

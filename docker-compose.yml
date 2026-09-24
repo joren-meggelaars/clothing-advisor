@@ -11,9 +11,18 @@ services:
       - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-8080}:8080"
     volumes:
       - ./data:/data
+    # Reaches Authentik (single sign-on) over a private network shared with the identity-platform stack, without
+    # going through a public name. Create it once on the host: docker network create identity-apps
+    networks:
+      - default
+      - identity-apps
     mem_limit: 384m
     logging:
       driver: json-file
       options:
         max-size: "5m"
         max-file: "3"
+
+networks:
+  identity-apps:
+    external: true

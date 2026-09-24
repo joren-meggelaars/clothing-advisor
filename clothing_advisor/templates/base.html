@@ -25,6 +25,11 @@
     {% for label, path in nav %}
     <a href="{{ u(path) }}" class="{{ 'on' if active == path else '' }}">{{ label }}</a>
     {% endfor %}
+    {% if can_logout %}
+    <form method="post" action="/app/logout" class="signout">
+      {% if who %}<span class="muted small">{{ who.name }}</span>{% endif %}<button type="submit">Sign out</button>
+    </form>
+    {% endif %}
   </nav>
 </header>
 {% if cost.pct >= 100 %}

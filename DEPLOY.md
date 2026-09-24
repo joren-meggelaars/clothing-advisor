@@ -19,6 +19,21 @@ curl -s http://localhost:8080/healthz               # {"ok":true}
 Set `BIND_ADDRESS` to the VM IP (or `0.0.0.0`) so Nginx Proxy Manager, on another VM, can reach port 8080.
 Remember to write every literal `$` in `.env` values as `$$`.
 
+## Optional: sign in with your account (Authentik) instead of pasting the token
+
+Needs the identity-platform stack (its README explains the one-time setup, including `docker network create identity-apps`).
+
+1. Identity platform: in its `.env` set `CLOTHING_ADVISOR_OIDC_SECRET=$(openssl rand -hex 32)`, `git pull && docker compose up -d`.
+   The blueprint creates the provider, the application and the groups `clothing-advisor-admin` (everything) and
+   `clothing-advisor-viewer` (read-only). Add people under Directory -> Users and put them in a group.
+2. This app's `.env`: fill the `OIDC_*` block (issuer `https://<authentik host>/application/o/clothing-advisor/`, the same
+   secret, the redirect addresses you open the app on ending in `/app/oidc/callback`, and `OIDC_INTERNAL_URL=http://authentik:9000`).
+   The redirect addresses must also be listed in `identity-platform/blueprints/clothing-advisor.yaml`.
+3. `docker network create identity-apps` (once, if not done yet), then `docker compose up -d --build`.
+
+`/app/login` now shows a **Sign in** button; the token form stays underneath as emergency access when Authentik is down.
+The tile and view tokens (Home Assistant, tv) are unaffected. Sessions last `OIDC_SESSION_DAYS` (default 7).
+
 ## 2. Nginx Proxy Manager
 
 Proxy Host `ca.<your domain>` -> scheme **http**, forward host = VM IP, port 8080, SSL certificate with "Force SSL".

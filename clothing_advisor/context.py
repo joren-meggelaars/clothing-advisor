@@ -10,6 +10,7 @@ from .config import Config
 from .db import Database
 from .llm import LlmClient
 from .notify import Notifier
+from .oidc import Oidc
 from .stylist import DEFAULT_STYLE_PROFILE, Stylist
 from .taste import Taste
 from .usage import CostTracker
@@ -28,6 +29,7 @@ class Ctx:
     worker: CatalogWorker
     taste: Taste
     auto: AutoAdvice
+    oidc: Oidc
 
 
 def build_ctx(cfg: Config, client: Any | None = None) -> Ctx:
@@ -41,4 +43,4 @@ def build_ctx(cfg: Config, client: Any | None = None) -> Ctx:
     weather = Weather(cfg, db)
     stylist = Stylist(cfg, db, llm, weather)
     return Ctx(cfg, db, notifier, tracker, llm, weather, stylist, CatalogWorker(cfg, db, llm),
-               Taste(cfg, db, llm), AutoAdvice(cfg, db, stylist, tracker))
+               Taste(cfg, db, llm), AutoAdvice(cfg, db, stylist, tracker), Oidc(cfg))

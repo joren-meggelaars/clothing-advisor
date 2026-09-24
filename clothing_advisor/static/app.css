@@ -80,3 +80,9 @@ progress { width: 100%; }
 .fb { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
 .chips button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .fb .chips button { padding: 6px 11px; font-size: .85rem; }
+
+a.button { display: inline-block; padding: 10px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink); text-decoration: none; }
+a.button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+nav form.signout { margin-left: auto; display: flex; align-items: center; gap: 6px; padding-right: 4px; }
+nav form.signout button { border: 0; background: none; color: var(--muted); padding: 12px 6px; }
+details.emergency { margin: 16px 0; } details.emergency summary { cursor: pointer; color: var(--muted); padding: 6px 0; }

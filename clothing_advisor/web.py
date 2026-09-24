@@ -24,6 +24,7 @@ from .config import Config
 from .context import Ctx, build_ctx
 from .db import EDITABLE_ITEM_FIELDS
 from .llm import LlmError
+from .oidc import ROLE_ADMIN, OidcDenied, OidcError
 from .schema import CATEGORIES, LAYERS, PATTERNS, SEASONS
 from .taste import DISTILL_EVERY, RATING_REASONS
 from .usage import BudgetExceeded
@@ -32,7 +33,7 @@ from .weather import Weather
 log = logging.getLogger("clothing_advisor")
 BASE = Path(__file__).parent
 SLOT_ORDER = {"outerwear": 0, "top": 1, "bottom": 2, "footwear": 3, "accessory": 4}
-PUBLIC_PREFIXES = ("/healthz", "/static/", "/img/", "/app/login")
+PUBLIC_PREFIXES = ("/healthz", "/static/", "/img/", "/app/login", "/app/oidc/")
 # What the tile token may do: show and act on the suggestions, nothing else (no upload, wardrobe, settings, costs).
 TILE_ROUTES = (
     ("GET", re.compile(r"^/app/tile$")),
@@ -52,6 +53,10 @@ VIEW_ROUTES = (
 )
 
 
+# Someone signed in through Authentik as a viewer (read-only group) may do what the view token may, and sign out.
+VIEWER_SESSION_ROUTES = VIEW_ROUTES + (("POST", re.compile(r"^/app/logout$")),)
+
+
 def route_allowed(routes, method: str, path: str) -> bool:
     return any(m == method and rx.match(path) for m, rx in routes)
 
@@ -68,6 +73,7 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
     cfg = cfg or Config.from_env()
     ctx: Ctx = build_ctx(cfg, client)
     https = cfg.public_base_url.startswith("https")
+    oidc = ctx.oidc
 
     async def auto_loop() -> None:
         while True:
@@ -155,14 +161,16 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
         """Only paths inside the app; never an external address."""
         return value if value.startswith("/app") and not value.startswith("//") and "\\" not in value else "/app"
 
-    def login_page(request: Request, error: str = "", nxt: str = "/app", status_code: int = 200):
-        return templates.TemplateResponse(request, "login.html", {"error": error, "next": nxt}, status_code=status_code)
+    def login_page(request: Request, error: str = "", nxt: str = "/app", status_code: int = 200, open_token: bool = False):
+        return templates.TemplateResponse(request, "login.html", {"error": error, "next": nxt, "oidc_enabled": oidc.enabled,
+                                                                  "open_token": open_token}, status_code=status_code)
 
     @app.middleware("http")
     async def guard(request: Request, call_next):
         source = auth_source(request)
         path = request.url.path
-        request.state.via_tile = request.state.via_view = False
+        request.state.via_tile = request.state.via_view = request.state.via_viewer = False
+        request.state.identity = None
         if source is None:
             scope = scoped_token(request)
             if scope:
@@ -173,6 +181,19 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
                     return templates.TemplateResponse(request, "unauthorized.html", {}, status_code=403)
                 source = name
                 request.state.via_tile, request.state.via_view = name == "tile", name == "view"
+        if source is None and oidc.enabled and request.cookies.get("ca_session"):
+            who = oidc.read_session(request.cookies["ca_session"])
+            if who:
+                request.state.identity = who
+                if who.role == ROLE_ADMIN:
+                    source = "oidc"
+                elif route_allowed(VIEWER_SESSION_ROUTES, request.method, path):
+                    source, request.state.via_viewer = "oidc-viewer", True
+                else:
+                    if path.startswith("/api/"):
+                        return JSONResponse({"detail": "Your account may only view"}, status_code=403)
+                    return templates.TemplateResponse(request, "unauthorized.html", {}, status_code=403)
+        request.state.source = source
         request.state.authed = source is not None
         request.state.via_query = source == "query"
         if source is None and not path.startswith(PUBLIC_PREFIXES):
@@ -195,8 +216,9 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
     def render(request: Request, name: str, status_code: int = 200, **kw: Any):
         kw.update(u=lambda p: url(request, p), token=cfg.access_token if request.state.via_query else "",
                   tile_key=cfg.tile_token if request.state.via_tile else "",
-                  view_key=cfg.view_token if request.state.via_view else "", readonly=request.state.via_view,
-                  full_url="/app" if (request.state.via_tile or request.state.via_view) else url(request, "/app"), nav=NAV, cost=ctx.tracker.summary(), msg=request.query_params.get("msg", ""))
+                  view_key=cfg.view_token if request.state.via_view else "", readonly=request.state.via_view or request.state.via_viewer,
+                  can_logout=request.state.source in ("cookie", "oidc", "oidc-viewer"), who=request.state.identity,
+                  full_url="/app" if (request.state.via_tile or request.state.via_view or request.state.via_viewer) else url(request, "/app"), nav=NAV, cost=ctx.tracker.summary(), msg=request.query_params.get("msg", ""))
         return templates.TemplateResponse(request, name, kw, status_code=status_code)
 
     def redirect(request: Request, path: str, msg: str = "") -> RedirectResponse:
@@ -281,21 +303,69 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
     def login_form(request: Request, next: str = "/app"):
         nxt = safe_next(next)
         if request.state.authed:
+            if request.state.via_viewer and not route_allowed(VIEWER_SESSION_ROUTES, "GET", nxt.split("?")[0]):
+                nxt = "/app/tile"
             return RedirectResponse(nxt, status_code=303)
         return login_page(request, nxt=nxt)
+
+    @app.get("/app/oidc/start")
+    def oidc_start(request: Request, next: str = "/app"):
+        if not oidc.enabled:
+            raise HTTPException(404)
+        nxt = safe_next(next)
+        try:
+            target, cookie, secure = oidc.start(request.headers.get("host", ""), nxt)
+        except OidcError as exc:
+            log.warning("sign-in could not start: %s", exc)
+            return login_page(request, "The sign-in service cannot be reached right now. Use the emergency token below.", nxt, 502)
+        response = RedirectResponse(target, status_code=303)
+        response.set_cookie("ca_oidc", cookie, max_age=600, httponly=True, secure=secure, samesite="lax", path="/app/oidc")
+        return response
+
+    @app.get("/app/oidc/callback")
+    def oidc_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+        if not oidc.enabled:
+            raise HTTPException(404)
+        if error:
+            log.info("sign-in refused by the provider: %s", error)
+            return login_page(request, "Sign-in was cancelled or refused.", "/app", 400)
+        try:
+            identity, nxt, redirect_uri = oidc.finish(code, state, request.cookies.get("ca_oidc", ""))
+        except OidcDenied as exc:
+            log.warning("sign-in denied: %s", exc)
+            return login_page(request, "Your account has no access to Clothing Advisor. Ask the administrator to add you to a group.", "/app", 403)
+        except OidcError as exc:
+            log.warning("sign-in failed: %s", exc)
+            return login_page(request, "Sign-in failed. Try again, or use the emergency token below.", "/app", 400)
+        nxt = safe_next(nxt)
+        if identity.role != ROLE_ADMIN and not route_allowed(VIEWER_SESSION_ROUTES, "GET", nxt.split("?")[0]):
+            nxt = "/app/tile"
+        response = RedirectResponse(nxt, status_code=303)
+        response.set_cookie("ca_session", oidc.new_session(identity), max_age=oidc.session_seconds, httponly=True,
+                            secure=redirect_uri.startswith("https"), samesite="lax", path="/")
+        response.delete_cookie("ca_oidc", path="/app/oidc")
+        return response
+
+    @app.post("/app/logout")
+    def logout():
+        """Ends this browser's session here (the Authentik session itself stays, so signing in again is one tap)."""
+        response = RedirectResponse("/app/login", status_code=303)
+        response.delete_cookie("ca_session", path="/")
+        response.delete_cookie("ca_auth", path="/")
+        return response
 
     @app.post("/app/login")
     def login_submit(request: Request, token: str = Form(""), next: str = Form("/app")):
         nxt = safe_next(next)
         if login_blocked():
-            return login_page(request, "Too many wrong attempts. Try again in a few minutes.", nxt, 429)
+            return login_page(request, "Too many wrong attempts. Try again in a few minutes.", nxt, 429, open_token=True)
         if token and _eq(token.strip(), cfg.access_token):
             response = RedirectResponse(nxt, status_code=303)
             set_auth_cookie(response)
             return response
         failed_logins.append(time.time())
         time.sleep(1)                                                       # slows guessing down
-        return login_page(request, "That is not the right access token.", nxt, 401)
+        return login_page(request, "That is not the right access token.", nxt, 401, open_token=True)
 
     @app.get("/app")
     def page_advice(request: Request):
