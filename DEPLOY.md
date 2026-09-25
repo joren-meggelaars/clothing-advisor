@@ -7,7 +7,7 @@ Target: the Docker VM (same stack style as the other services), reverse-proxied 
 ```bash
 git clone https://github.com/joren-meggelaars/clothing-advisor.git
 cd clothing-advisor
-cp .env.example .env
+cp -n .env.example .env
 mkdir -p data && chown "$(id -u):$(id -g)" data     # PUID/PGID in .env must match this user
 openssl rand -hex 24                                # -> CA_ACCESS_TOKEN
 nano .env                                           # fill in the required values
