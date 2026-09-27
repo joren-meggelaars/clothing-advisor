@@ -53,6 +53,29 @@
   </form>
 </section>
 
+<section class="card" id="shop">
+  <h2>Shopping advice</h2>
+  <p class="muted small">Used on the <a href="{{ u('/app/shop') }}">Shop</a> page. Season research is refreshed at most
+    every {{ brief_max_age_days }} days (or sooner if you tick "Refresh" there); the outfit advice itself always runs fresh.</p>
+  <form method="post" action="{{ u('/app/settings/shop') }}">
+    <label>Cost profile
+      <select name="cost_profile">
+        {% for key, p in cost_profiles.items() %}
+        <option value="{{ key }}" {{ 'selected' if key == shop_cost_profile }}>{{ p.label }}</option>
+        {% endfor %}
+      </select></label>
+    <label>Total budget per shopping round (EUR)
+      <input type="number" name="budget_eur" min="20" max="5000" step="10" value="{{ shop_budget_eur }}"></label>
+    <label>Stores / brands to suggest from
+      <textarea name="stores" rows="2" maxlength="500">{{ shop_stores }}</textarea></label>
+    <label>Notes on stores/brands (context for Claude, e.g. what to avoid or prefer)
+      <textarea name="stores_note" rows="3" maxlength="1000">{{ shop_stores_note }}</textarea></label>
+    <label>Sizes
+      <textarea name="sizes" rows="2" maxlength="300">{{ shop_sizes }}</textarea></label>
+    <button class="primary">Save</button>
+  </form>
+</section>
+
 <section class="card">
   <h2>Learned taste</h2>
   <p class="muted small">Built from your star ratings and notes, and used in every request. You can edit it. It is refreshed

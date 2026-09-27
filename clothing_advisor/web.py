@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import catalog, imaging, stylist
+from . import catalog, imaging, shop, stylist
 from .config import Config
 from .context import Ctx, build_ctx
 from .db import EDITABLE_ITEM_FIELDS
@@ -62,7 +62,7 @@ def route_allowed(routes, method: str, path: str) -> bool:
 
 
 NAV = (("Advice", "/app"), ("Wardrobe", "/app/wardrobe"), ("Add", "/app/add"), ("Review", "/app/review"),
-       ("Laundry", "/app/laundry"), ("Costs", "/app/costs"), ("Settings", "/app/settings"))
+       ("Laundry", "/app/laundry"), ("Shop", "/app/shop"), ("Costs", "/app/costs"), ("Settings", "/app/settings"))
 
 
 def _eq(a: str, b: str) -> bool:
@@ -256,6 +256,21 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
             view["items"] = [{"id": i["id"], "subtype": i["subtype"], "thumb": url(request, f"/img/thumbs/{i['thumb']}")}
                              for i in items]
         return view
+
+    def shop_owned_view(request: Request, item_ids: list[int]) -> list[dict[str, Any]]:
+        items = sorted(ctx.db.items_by_ids(item_ids).values(), key=lambda i: (SLOT_ORDER.get(i["category"], 9), i["id"]))
+        return [{"id": i["id"], "subtype": i["subtype"], "thumb": url(request, f"/img/thumbs/{i['thumb']}")} for i in items]
+
+    def shop_state(request: Request) -> dict[str, Any]:
+        brief = ctx.db.latest_shop_brief()
+        return {
+            "gap": shop.gap_analysis(ctx.db),
+            "brief": brief,
+            "advice": shop.advice_view(ctx.db, lambda ids: shop_owned_view(request, ids)),
+            "budget_eur": shop.budget_eur(ctx.db),
+            "cost_profile": shop.cost_profile_key(ctx.db),
+            "cost_profile_label": shop.cost_profile(ctx.db)["label"],
+        }
 
     def today_outfit(request: Request, tv: bool = False) -> dict[str, Any] | None:
         for o in reversed(ctx.db.list_outfits(statuses=("chosen", "worn"), since=today())):
@@ -485,6 +500,53 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
         stylist.mark_clean(ctx.db, targets)
         return redirect(request, "/app/laundry", f"{len(targets)} items are clean again")
 
+    @app.get("/app/shop")
+    def page_shop(request: Request):
+        return render(request, "shop.html", active="/app/shop")
+
+    @app.get("/api/shop/current")
+    def api_shop_current(request: Request):
+        return shop_state(request)
+
+    @app.post("/api/shop/advise")
+    def api_shop_advise(request: Request, payload: dict[str, Any] = Body(default={})):
+        try:
+            shop.advise(cfg, ctx.db, ctx.llm, request=str(payload.get("request", "")),
+                       refresh_brief=bool(payload.get("refresh_brief")))
+        except BudgetExceeded as e:
+            raise HTTPException(402, str(e))
+        except LlmError as e:
+            raise HTTPException(502, str(e))
+        return shop_state(request)
+
+    @app.post("/api/shop/feedback")
+    def api_shop_feedback(request: Request, payload: dict[str, Any] = Body(default={})):
+        advice_id, idx = payload.get("advice_id"), payload.get("outfit_idx")
+        verdict = str(payload.get("verdict", ""))
+        current = ctx.db.latest_shop_advice()
+        if not current or current["id"] != advice_id or not isinstance(idx, int) or not 0 <= idx < len(current["outfits"]):
+            raise HTTPException(404, "No such shop outfit")
+        if verdict == "clear":
+            ctx.db.clear_shop_feedback(advice_id, idx)
+        elif verdict in ("like", "dislike"):
+            ctx.db.set_shop_feedback(advice_id, idx, verdict, str(payload.get("comment", ""))[:500])
+        else:
+            raise HTTPException(400, "verdict must be like, dislike or clear")
+        return shop_state(request)
+
+    @app.post("/app/settings/shop")
+    def settings_shop(request: Request, cost_profile: str = Form(shop.DEFAULT_COST_PROFILE),
+                      budget_eur: float = Form(shop.DEFAULT_BUDGET_EUR), stores: str = Form(""),
+                      stores_note: str = Form(""), sizes: str = Form("")):
+        if cost_profile not in shop.COST_PROFILES:
+            raise HTTPException(400, "Unknown cost profile")
+        ctx.db.set_setting("shop_cost_profile", cost_profile)
+        ctx.db.set_setting("shop_budget_eur", f"{max(20.0, min(5000.0, budget_eur)):.0f}")
+        ctx.db.set_setting("shop_stores", stores.strip()[:500])
+        ctx.db.set_setting("shop_stores_note", stores_note.strip()[:1000])
+        ctx.db.set_setting("shop_sizes", sizes.strip()[:300])
+        return redirect(request, "/app/settings", "Shopping-advice settings saved")
+
     @app.get("/app/costs")
     def page_costs(request: Request):
         ym = ctx.tracker.ym()
@@ -517,7 +579,11 @@ def create_app(cfg: Config | None = None, client: Any | None = None, start_worke
                       taste=ctx.taste.status(), distill_every=DISTILL_EVERY, auto_on=ctx.auto.enabled(),
                       auto_time=ctx.auto.at().strftime("%H:%M"), auto_request=ctx.auto.request(),
                       auto_status=ctx.auto.status(), work_days=stylist.work_days(ctx.db),
-                      work_dress=stylist.work_dress(ctx.db), default_work_dress=stylist.DEFAULT_WORK_DRESS)
+                      work_dress=stylist.work_dress(ctx.db), default_work_dress=stylist.DEFAULT_WORK_DRESS,
+                      cost_profiles=shop.COST_PROFILES, shop_cost_profile=shop.cost_profile_key(ctx.db),
+                      shop_budget_eur=int(shop.budget_eur(ctx.db)), shop_stores=shop.preferred_stores(ctx.db),
+                      shop_stores_note=shop.stores_note(ctx.db), shop_sizes=shop.sizes(ctx.db),
+                      brief_max_age_days=shop.BRIEF_MAX_AGE_DAYS)
 
     @app.post("/app/settings/work")
     def settings_work(request: Request, days: list[str] = Form(default=[]), work_dress: str = Form("")):

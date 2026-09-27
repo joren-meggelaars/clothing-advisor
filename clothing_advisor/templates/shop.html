@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block head %}<script src="{{ asset('shop.js') }}" defer></script>{% endblock %}
+{% block content %}
+<h1>Shop</h1>
+<p class="muted small">3-4 outfits for smart casual / casual chic, mixing what you already own with a few new pieces.
+  Cost profile and budget are set on <a href="{{ u('/app/settings') }}#shop">Settings</a>.</p>
+
+<div id="gap"></div>
+
+<section class="card">
+  <form id="ask" autocomplete="off">
+    <input type="text" id="q" maxlength="500" placeholder="Optional: e.g. focus on outerwear, or: for a client meeting">
+    <div class="row">
+      <label class="chk"><input type="checkbox" id="refresh"> Refresh season research (uses web search, a few cents)</label>
+    </div>
+    <button type="submit" id="go" class="primary">Get shopping advice</button>
+  </form>
+</section>
+
+<div id="status" class="muted"></div>
+<p id="reply" class="reply"></p>
+<div id="brief"></div>
+<div id="outfits"></div>
+{% endblock %}

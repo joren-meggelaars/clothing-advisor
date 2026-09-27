@@ -59,6 +59,18 @@ The tile tokens work inside an iframe without cookies. If one leaks, change it i
    On the Advice page *Ignore workdays* treats a weekday as a day off (leave, holiday) and *Extra formal* goes one notch smarter
    for that request; the style profile's no-gos (suits, formal dress shoes) always win. The morning suggestion follows the same rules.
 
+9. **Shop** (`/app/shop`): what to buy so more smart-casual / casual-chic outfits become possible, mixing pieces you
+   already own with a few new ones -- not necessarily 3-4 fully new outfits. Two Claude calls, kept separate on purpose:
+   - A **gap analysis** runs with no Claude call at all: which categories are thin on smart-casual pieces, computed
+     straight from the wardrobe.
+   - A **season research brief** (web search, `$10 per 1,000 searches` plus tokens) looks up current smart-casual
+     trends and how they show up at your stores, for the chosen cost profile. Reused for up to 30 days or until the
+     season changes; tick *Refresh season research* on the page to force a new one early.
+   - **Outfit advice** (structured output, no search) turns the brief, the wardrobe, the gap analysis, your cost
+     profile/budget/stores (Settings -> Shopping advice) and past 👍/👎 on earlier suggestions into 3-4 outfits, each
+     with owned item ids plus 0-3 pieces to buy (category, description, an EUR price range, a store suggestion, why).
+     Prices are estimates from Claude's knowledge and the brief, not live quotes or product links.
+
 ## Cost control
 
 Every Claude call is logged with tokens and an EUR estimate (Costs page). `MONTHLY_BUDGET_EUR` (default 10) has

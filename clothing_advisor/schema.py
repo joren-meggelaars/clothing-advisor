@@ -45,3 +45,26 @@ class AdviceOut(BaseModel):
     reply: str
     outfits: list[OutfitOut]
     exclude_item_ids: list[int]
+
+
+class ShopBuyItem(BaseModel):
+    """One new piece to buy: no product link, a description Claude is confident exists at the suggested stores."""
+
+    category: Category
+    description: str
+    price_low: float
+    price_high: float
+    store_suggestion: str
+    why: str
+
+
+class ShopOutfitOut(BaseModel):
+    name: str
+    owned_item_ids: list[int]   # pieces from the current wardrobe, may be empty
+    buy: list[ShopBuyItem]      # new pieces, may be empty (an outfit can be 100% owned or 100% new)
+    rationale: str
+
+
+class ShopAdviceOut(BaseModel):
+    reply: str
+    outfits: list[ShopOutfitOut]

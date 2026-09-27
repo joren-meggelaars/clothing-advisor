@@ -85,6 +85,34 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS shop_briefs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    season TEXT NOT NULL,
+    text TEXT NOT NULL,
+    sources TEXT NOT NULL DEFAULT '[]',
+    searches INTEGER NOT NULL DEFAULT 0,
+    cost_eur REAL NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS shop_advice (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    brief_id INTEGER REFERENCES shop_briefs(id) ON DELETE SET NULL,
+    profile TEXT NOT NULL,
+    request TEXT NOT NULL DEFAULT '',
+    reply TEXT NOT NULL DEFAULT '',
+    outfits TEXT NOT NULL,
+    cost_eur REAL NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS shop_feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    advice_id INTEGER NOT NULL REFERENCES shop_advice(id) ON DELETE CASCADE,
+    outfit_idx INTEGER NOT NULL,
+    verdict TEXT NOT NULL,
+    comment TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    UNIQUE(advice_id, outfit_idx)
+);
 CREATE INDEX IF NOT EXISTS idx_items_ai_state ON items(ai_state);
 CREATE INDEX IF NOT EXISTS idx_usage_ym ON usage(ym);
 CREATE INDEX IF NOT EXISTS idx_outfits_session ON outfits(session_id);
@@ -409,6 +437,89 @@ class Database:
         with self.conn() as c:
             rows = c.execute("SELECT * FROM usage ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
         return [dict(r) for r in rows]
+
+    # ---- shop advice -------------------------------------------------------
+    def add_shop_brief(self, season: str, text: str, sources: list[dict[str, str]], searches: int, cost_eur: float) -> int:
+        with self.conn() as c:
+            cur = c.execute(
+                "INSERT INTO shop_briefs(created_at, season, text, sources, searches, cost_eur) VALUES(?,?,?,?,?,?)",
+                (now_iso(), season, text, json.dumps(sources), searches, cost_eur),
+            )
+            return int(cur.lastrowid)
+
+    @staticmethod
+    def _brief(row: sqlite3.Row | None) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        d = dict(row)
+        d["sources"] = json.loads(d["sources"] or "[]")
+        return d
+
+    def latest_shop_brief(self) -> dict[str, Any] | None:
+        with self.conn() as c:
+            return self._brief(c.execute("SELECT * FROM shop_briefs ORDER BY id DESC LIMIT 1").fetchone())
+
+    def get_shop_brief(self, brief_id: int) -> dict[str, Any] | None:
+        with self.conn() as c:
+            return self._brief(c.execute("SELECT * FROM shop_briefs WHERE id=?", (brief_id,)).fetchone())
+
+    def add_shop_advice(self, brief_id: int | None, profile: str, request: str, reply: str,
+                        outfits: list[dict[str, Any]], cost_eur: float) -> int:
+        with self.conn() as c:
+            cur = c.execute(
+                "INSERT INTO shop_advice(created_at, brief_id, profile, request, reply, outfits, cost_eur)"
+                " VALUES(?,?,?,?,?,?,?)",
+                (now_iso(), brief_id, profile, request, reply, json.dumps(outfits), cost_eur),
+            )
+            return int(cur.lastrowid)
+
+    @staticmethod
+    def _advice(row: sqlite3.Row | None) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        d = dict(row)
+        d["outfits"] = json.loads(d["outfits"] or "[]")
+        return d
+
+    def latest_shop_advice(self) -> dict[str, Any] | None:
+        with self.conn() as c:
+            return self._advice(c.execute("SELECT * FROM shop_advice ORDER BY id DESC LIMIT 1").fetchone())
+
+    def get_shop_advice(self, advice_id: int) -> dict[str, Any] | None:
+        with self.conn() as c:
+            return self._advice(c.execute("SELECT * FROM shop_advice WHERE id=?", (advice_id,)).fetchone())
+
+    def set_shop_feedback(self, advice_id: int, outfit_idx: int, verdict: str, comment: str = "") -> None:
+        with self.conn() as c:
+            c.execute(
+                "INSERT INTO shop_feedback(advice_id, outfit_idx, verdict, comment, created_at) VALUES(?,?,?,?,?) "
+                "ON CONFLICT(advice_id, outfit_idx) DO UPDATE SET verdict=excluded.verdict, comment=excluded.comment, "
+                "created_at=excluded.created_at",
+                (advice_id, outfit_idx, verdict, comment, now_iso()),
+            )
+
+    def clear_shop_feedback(self, advice_id: int, outfit_idx: int) -> None:
+        with self.conn() as c:
+            c.execute("DELETE FROM shop_feedback WHERE advice_id=? AND outfit_idx=?", (advice_id, outfit_idx))
+
+    def shop_feedback(self, advice_id: int) -> dict[int, dict[str, Any]]:
+        with self.conn() as c:
+            rows = c.execute("SELECT * FROM shop_feedback WHERE advice_id=?", (advice_id,)).fetchall()
+        return {r["outfit_idx"]: dict(r) for r in rows}
+
+    def recent_shop_feedback(self, limit: int = 12) -> list[dict[str, Any]]:
+        """Newest first, each with the outfit it is about."""
+        with self.conn() as c:
+            rows = c.execute(
+                "SELECT f.verdict, f.comment, f.outfit_idx, a.outfits FROM shop_feedback f "
+                "JOIN shop_advice a ON a.id = f.advice_id ORDER BY f.id DESC LIMIT ?", (limit,),
+            ).fetchall()
+        out = []
+        for r in rows:
+            outfits = json.loads(r["outfits"] or "[]")
+            if 0 <= r["outfit_idx"] < len(outfits):
+                out.append({"verdict": r["verdict"], "comment": r["comment"], "outfit": outfits[r["outfit_idx"]]})
+        return out
 
     def avg_cost(self, purpose: str, last_n: int = 50) -> tuple[float, int]:
         with self.conn() as c:

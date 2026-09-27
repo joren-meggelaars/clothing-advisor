@@ -21,6 +21,7 @@ PRICES_USD: dict[str, tuple[float, float]] = {
     "claude-opus-4-8": (5.0, 25.0),
     "claude-fable-5-1": (10.0, 50.0),
 }
+SEARCH_USD = 0.01  # web search tool: $10 per 1,000 searches, on top of the tokens
 CACHE_READ_FACTOR = 0.1
 CACHE_WRITE_FACTOR = 1.25  # 5-minute cache
 
@@ -68,8 +69,9 @@ class CostTracker:
             )
 
     def record(self, purpose: str, model: str, in_tok: int, out_tok: int,
-               cache_read: int = 0, cache_write: int = 0) -> float:
-        eur = cost_usd(model, in_tok, out_tok, cache_read, cache_write) * self.cfg.usd_eur
+               cache_read: int = 0, cache_write: int = 0, extra_usd: float = 0.0) -> float:
+        """extra_usd: charges that are not tokens (web searches)."""
+        eur = (cost_usd(model, in_tok, out_tok, cache_read, cache_write) + extra_usd) * self.cfg.usd_eur
         self.db.add_usage(self.ym(), purpose, model, in_tok, out_tok, cache_read, cache_write, eur)
         self._alert_if_needed()
         return eur
